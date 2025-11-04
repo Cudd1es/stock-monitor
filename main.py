@@ -24,6 +24,7 @@ class AgentState(TypedDict):
     brief: str                          # summary content
     errors: List[str]                   # error log
     plan: List[str]                     # available actions
+    _notified: bool                      # whether notified
 
 
 # define nodes
@@ -125,6 +126,7 @@ def node_notify(state:AgentState) -> AgentState:
     if alerts:
         notifier.notify(method, "[ALERT]\n" + "\n".join(alerts), discord_webhook=webhook, mention_id=mention_id)
     notifier.notify(method, "[DAILY BRIEF]\n" + brief, discord_webhook=webhook, mention_id=mention_id)
+    state["_notified"] = True
     print(f"[DEBUG][node_notify] notified via: {method}, alerts: {len(alerts)}")
     return state
 
@@ -135,9 +137,14 @@ def node_supervisor(state: AgentState) -> AgentState:
         plan.append("parse")
     if "snapshot" not in state:
         plan.append("price")
-    if "news_map" not in state:
+    if state.get("rules", {}).get("news_enabled", True) and "news_map" not in state:
         plan.append("news")
-    plan += ["judge", "brief", "notify"]
+    if "alerts" not in state:
+        plan.append("judge")
+    if "brief" not in state:
+        plan.append("brief")
+    if not state.get("_notified", False):
+        plan.append("notify")
     state["plan"] = plan
     return state
 
@@ -187,16 +194,8 @@ def build_graph():
     })
 
     # each node returns to router
-    for node in list_of_nodes:
-        g.add_conditional_edges(node, route, {
-            "parse": "parse",
-            "price": "price",
-            "judge": "judge",
-            "brief": "brief",
-            "notify": "notify",
-            "news": "news",
-            "__END__": END,
-        })
+    for node in ["parse", "price", "news", "judge", "brief", "notify"]:
+        g.add_edge(node, "supervisor")
 
     return g
 
