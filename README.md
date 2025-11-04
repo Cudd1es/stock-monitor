@@ -59,7 +59,7 @@ notifier.py         # Send Discord or console notifications
 
 ---
 
-## Powered By
+## Acknowledgements
 - [LangGraph](https://python.langchain.com/docs/langgraph)
 - [yfinance](https://github.com/ranaroussi/yfinance)
 - [OpenAI API](https://platform.openai.com)
