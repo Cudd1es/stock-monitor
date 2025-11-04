@@ -135,7 +135,7 @@ def node_supervisor(state: AgentState) -> AgentState:
         plan.append("parse")
     if "snapshot" not in state:
         plan.append("price")
-    if "news" not in state:
+    if "news_map" not in state:
         plan.append("news")
     plan += ["judge", "brief", "notify"]
     state["plan"] = plan

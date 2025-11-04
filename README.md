@@ -7,6 +7,65 @@ A LangGraph-powered stock monitoring system that:
 - Summarizes results using LLMs
 - Sends notifications to Discord or console
 
+```mermaid
+flowchart LR
+    S[supervisor (entry)] -->|route| P[parse]
+    S -->|route| PR[price]
+    S -->|route| N[news]
+    S -->|route| J[judge]
+    S -->|route| B[brief]
+    S -->|route| NO[notify]
+    S -->|route| END((END))
+
+    P -->|route| P
+    P -->|route| PR
+    P -->|route| N
+    P -->|route| J
+    P -->|route| B
+    P -->|route| NO
+    P -->|route| END
+
+    PR -->|route| P
+    PR -->|route| PR
+    PR -->|route| N
+    PR -->|route| J
+    PR -->|route| B
+    PR -->|route| NO
+    PR -->|route| END
+
+    N -->|route| P
+    N -->|route| PR
+    N -->|route| N
+    N -->|route| J
+    N -->|route| B
+    N -->|route| NO
+    N -->|route| END
+
+    J -->|route| P
+    J -->|route| PR
+    J -->|route| N
+    J -->|route| J
+    J -->|route| B
+    J -->|route| NO
+    J -->|route| END
+
+    B -->|route| P
+    B -->|route| PR
+    B -->|route| N
+    B -->|route| J
+    B -->|route| B
+    B -->|route| NO
+    B -->|route| END
+
+    NO -->|route| P
+    NO -->|route| PR
+    NO -->|route| N
+    NO -->|route| J
+    NO -->|route| B
+    NO -->|route| NO
+    NO -->|route| END
+```
+
 ---
 
 ## Setup
@@ -68,3 +127,4 @@ notifier.py         # Send Discord or console notifications
 
 ## License
 Apache 2.0
+
