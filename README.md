@@ -1,51 +1,70 @@
-# stock-monitor
+# Stock Monitor Agent 
 
+A LangGraph-powered stock monitoring system that:
+- Parses user requirements with LLMs
+- Fetches live prices and news via yfinance
+- Judges price movement thresholds
+- Summarizes results using LLMs
+- Sends notifications to Discord or console
 
-```mermaid
-flowchart LR
-    subgraph User
-      U[human input<br/>(natural-language prompt)]
-    end
+---
 
-    subgraph Agent Graph
-      SUP[supervisor<br/>(plan or next)]
-      PARSER[parser<br/>(NL -> rules)]
-      PRICE[get ticker price]
-      NEWS[get news]
-      JUDGE[judge change vs threshold]
-      BRIEF[summarize<br/>(LLM)]
-      PERSIST[persist to SQLite]
-      ALERT[alert decision]
-      NOTIFY[discord/console notification]
-    end
+## Setup
 
-    U --> SUP
-
-    %% supervisor decides actions
-    SUP --> PARSER
-    PARSER --> SUP
-
-    SUP --> PRICE
-    PRICE --> SUP
-
-    SUP --> NEWS
-    NEWS --> SUP
-
-    SUP --> JUDGE
-    JUDGE --> SUP
-
-    SUP --> BRIEF
-    BRIEF --> SUP
-
-    SUP --> PERSIST
-    PERSIST --> SUP
-
-    %% supervisor can trigger alert or final notify
-    SUP --> ALERT
-    ALERT --> NOTIFY
-
-    %% daily/interval report
-    SUP --> NOTIFY
-
-    %% data/state flows back to supervisor for next decisions
+### 1. Install dependencies
+```bash
+pip install -r requirements.txt
 ```
+
+### 2. Add your API key
+Create a `.env` file in the project root:
+```
+OPENAI_API_KEY=sk-your-key-here
+```
+
+### 3. Configure Discord (optional)
+Create a `config.yaml`:
+```yaml
+discord:
+  webhook_url: "https://discord.com/api/webhooks/xxxx/xxxx",
+    mention_id: "xxxxxxxx"
+```
+
+---
+
+## Usage
+Run the main entry:
+```bash
+python main.py
+```
+
+Example prompt (inside `main.py`):
+```python
+init = {
+    "requirement": "Check MSFT and META price and tell me in discord"
+}
+```
+
+---
+
+## Project Structure
+```
+main.py             # LangGraph workflow definition
+parser.py           # Parse natural language into structured rules
+ticker_checker.py   # Fetch stock prices and compute change
+news_collector.py   # Get recent headlines from yfinance
+llm_interaction.py  # Interface with OpenAI models
+notifier.py         # Send Discord or console notifications
+```
+
+---
+
+## Powered By
+- [LangGraph](https://python.langchain.com/docs/langgraph)
+- [yfinance](https://github.com/ranaroussi/yfinance)
+- [OpenAI API](https://platform.openai.com)
+
+---
+
+## License
+Apache 2.0

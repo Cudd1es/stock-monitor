@@ -202,8 +202,3 @@ def parse_user_requirement(requirement_text: str, model: str = "gpt-4o") -> Dict
 
     final_cfg = _validate_and_fix(cfg_llm)
     return final_cfg
-
-if __name__ == "__main__":
-    test_prompt = input("please enter the prompt:\n")
-    cfg = parse_user_requirement(test_prompt)
-    print(cfg)
