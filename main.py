@@ -64,8 +64,8 @@ def node_judge(state:AgentState) -> AgentState:
         change_pct = row.get("change_pct", 0.0)
         if change_pct > threshold:
             alerts.append(f"{row['ticker']} moved {row['change_pct']:.2f}% (now {row['price_now']:.2f})")
-        state["alerts"] = alerts
-        print(f"[DEBUG][node_judge] alerts: {alerts}")
+    state["alerts"] = alerts
+    print(f"[DEBUG][node_judge] alerts: {alerts}")
     return state
 
 def node_news(state:AgentState) -> AgentState:
