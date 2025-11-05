@@ -38,8 +38,7 @@ flowchart TD
   NO --> S
 ```
 
-
-![discord.png](readme_resources/discord.png)
+![discord.png](readme_resources/discord.png "discord message")
 ---
 
 ## Setup
