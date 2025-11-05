@@ -7,6 +7,39 @@ A LangGraph-powered stock monitoring system that:
 - Summarizes results using LLMs
 - Sends notifications to Discord or console
 
+```mermaid
+flowchart TD
+  %% Topology of the LangGraph workflow
+
+  S[supervisor]
+  P[parse]
+  PR[price]
+  N[news]
+  J[judge]
+  B[brief]
+  NO[notify]
+  E([END])
+
+  %% Conditional routing from supervisor based on state.plan
+  S -- route(state) → parse --> P
+  S -- route(state) → price --> PR
+  S -- route(state) → news --> N
+  S -- route(state) → judge --> J
+  S -- route(state) → brief --> B
+  S -- route(state) → notify --> NO
+  S -- route(state) → __END__ --> E
+
+  %% All business nodes return to supervisor
+  P --> S
+  PR --> S
+  N --> S
+  J --> S
+  B --> S
+  NO --> S
+```
+
+
+![discord.png](readme_resources/discord.png)
 ---
 
 ## Setup

@@ -24,7 +24,7 @@ class AgentState(TypedDict):
     brief: str                          # summary content
     errors: List[str]                   # error log
     plan: List[str]                     # available actions
-    _notified: bool                      # whether notified
+    _notified: bool                     # whether notified
 
 
 # define nodes
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     graph = build_graph()
     app = graph.compile(checkpointer=MemorySaver())
     init = {
-        "requirement": "Check MSFT and META price and tell me in discord"
+        "requirement": "Check MSFT and META price and give me English report in discord"
     }
     out = app.invoke(
         init,
