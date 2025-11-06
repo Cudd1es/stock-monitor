@@ -1,0 +1,141 @@
+from langchain_core.tools import tool
+from langchain.agents import create_agent
+
+from typing import List, Dict, Any
+from threading import Lock
+import yaml
+from datetime import datetime
+import ticker_checker
+import llm_interaction
+import notifier
+import news_collector
+
+from dotenv import load_dotenv
+import os
+from openai import OpenAI
+
+# load llm api key in .env
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+
+client = OpenAI(api_key=api_key)
+
+
+# define state
+"""class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+    next: str"""
+
+# define tools
+yf_lock = Lock()
+
+@tool("ticker_price")
+def ticker_price(ticker:str, timezone:str="America/Toronto") -> list[Dict[str, Any]]:
+    """
+    Use yfinance API to get ticker data (current price, previous close, change percent)
+    :param ticker: ticker symbol
+    :param timezone: user location timezone, e.g.: "America/Toronto"
+    :return: dictionary of ticker data
+    """
+    with yf_lock:
+        snapshot = []
+        now = datetime.now()
+        current_time = now.strftime("%H:%M")
+        timezone = timezone
+        #timezone = state["rules"].get("timezone", "America/Toronto")
+        price_now = ticker_checker.get_intraday_price_at(ticker, current_time, timezone)
+        prev_close = ticker_checker.get_previous_close(ticker)
+        if price_now is None or prev_close is None:
+            change_pct = 0.0
+        else:
+            change_pct = ticker_checker.get_change_pct_vs_prev_close(ticker, price_now)
+        snapshot.append({
+            "ticker": ticker,
+            "price_now": price_now,
+            "prev_close": prev_close,
+            "change_pct": change_pct if change_pct else 0.0,
+        })
+        print(f"[DEBUG][ticker_price] snapshot: {snapshot}")
+        return snapshot
+
+@tool("ticker_news")
+def ticker_news(ticker:str) -> List[Dict[str, Any]]:
+    """
+    Use yfinance API to get ticker news
+    :param ticker: ticker symbol
+    :return: list of ticker news with reference link
+    """
+    news = news_collector.fetch_news_headlines(ticker, 5)
+    print(f"[DEBUG][ticker_news] news count: {len(news)}")
+    print(f"[DEBUG][ticker_news] news: {news}")
+    return news
+
+@tool("send_notification")
+def send_notification(method:str, content:str):
+    """
+    notify user about the ticker report on method (console or discord)
+    :param method: notification method (console or discord)
+    :param content: notification content
+    :return:
+    """
+    with open("config.yaml", "r") as f:
+        base_cfg = yaml.safe_load(f)
+    webhook = (base_cfg.get("discord") or {}).get("webhook_url")
+    mention_id = (base_cfg.get("discord") or {}).get("mention_id")
+    #print(f"[DEBUG] discord message: {content}")
+    notifier.notify(method, "[DAILY BRIEF]\n" + content, discord_webhook=webhook, mention_id=mention_id)
+    print(f"[DEBUG][send_notification] notified via: {method}")
+    return
+
+@tool("generate_report")
+def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any]], language: str="zh") -> str:
+    """
+    Generate report from ticker snapshot data and news
+    :param ticker: ticker symbol for the report
+    :param snapshot: ticker data
+    :param news: news related to the ticker
+    :param language: language of the report, e.g.: "zh", "en", "jp"
+    :return: report text
+    """
+    # build context
+    lines = [
+        f'{ticker}: now={snapshot["price_now"]:.2f}, prev_close={snapshot["prev_close"]:.2f}, change={snapshot["change_pct"]:.2f}%']
+    for n in news:
+        lines.append(f"  - {n['title']} ({n.get('link', '')})")
+    context = "\n".join(lines) if lines else "No price snapshot."
+    prompt = f"""Write a concise end-of-day style report for ticker{ticker}.
+    For each ticker, summarize news briefs with corresponding links
+    Emphasize any any big move. Be neutral and factual. Avoid investment advice.
+
+    DATA:
+    {context}
+
+    Output in {language}, use clear bullets and a one-line summary at the end.
+    """
+    brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
+    # Fallback
+    if not brief.strip():
+        bullets = "\n".join([f"- {l}" for l in lines]) or "No price snapshot."
+        brief = f"{bullets}\nNo price snapshot provided, cannot generate summary."
+    print(f"[DEBUG][generate_report] brief (first 120): {brief[:120]}")
+    return brief
+
+# create agent
+tools = [ticker_price, ticker_news, send_notification, generate_report]
+system_prompt = (
+    "You are a professional stock-tracking assistant."
+    "Append additional summaries or professional comments from your end based on report"
+    "language should match language in user prompt, unless there is special needs in user prompt"
+)
+
+
+agent = create_agent(
+    model="gpt-4o",
+    tools=tools,
+    system_prompt=system_prompt,
+)
+
+
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "分析 MSFT, NVDA 和 META, 并在discord给我发简报"}]
+})

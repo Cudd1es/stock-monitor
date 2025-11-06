@@ -1,12 +1,18 @@
 # Stock Monitor Agent 
 
-A LangGraph-powered stock monitoring system that:
+A LangGraph-powered stock monitoring system that trace stock price, 
+collect news and generate reports with workflow mode and agent mode.
+
+
+
+### Workflow Mode
 - Parses user requirements with LLMs
 - Fetches live prices and news via yfinance
 - Judges price movement thresholds
 - Summarizes results using LLMs
 - Sends notifications to Discord or console
 
+Topology: 
 ```mermaid
 flowchart TD
   %% Topology of the LangGraph workflow
@@ -38,6 +44,25 @@ flowchart TD
   NO --> S
 ```
 
+### Agent Mode
+
+- LLM agent parses user prompt itself
+- LLM agent make use of tools provided to finish works from user requirements
+- LLM agent decides when to end
+
+Topology:
+![agent_topology.png](readme_asserts/agent_topology.png "agent topology")
+
+
+## Example
+
+User prompt:
+
+```
+Check MSFT and META price and give me English report in discord
+```
+
+Result:
 ![discord.png](readme_asserts/discord.png "discord message")
 ---
 
@@ -65,23 +90,42 @@ discord:
 ---
 
 ## Usage
+
+### Use Workflow Mode
 Run the main entry:
 ```bash
-python main.py
+python main_workflow.py
 ```
 
-Example prompt (inside `main.py`):
+Example prompt (inside `main_workflow.py`):
 ```python
 init = {
     "requirement": "Check MSFT and META price and tell me in discord"
 }
 ```
 
+
+### Use Agent Mode
+
+Run the main entry:
+```bash
+python main_agent.py
+```
+
+Example prompt (inside `main_workflow.py`):
+```python
+init = {
+    "requirement": "分析 MSFT, NVDA 和 META, 并在discord给我发简报"
+}
+```
+
+
 ---
 
 ## Project Structure
 ```
-main.py             # LangGraph workflow definition
+main_workflow.py    # LangGraph workflow definition
+main_agent.py       # LangGraph agent definition
 parser.py           # Parse natural language into structured rules
 ticker_checker.py   # Fetch stock prices and compute change
 news_collector.py   # Get recent headlines from yfinance
