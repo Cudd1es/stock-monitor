@@ -51,6 +51,7 @@ flowchart TD
 - LLM agent decides when to end
 
 Topology:
+
 ![agent_topology.png](readme_asserts/agent_topology.png "agent topology")
 
 
