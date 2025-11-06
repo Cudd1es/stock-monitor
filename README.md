@@ -113,7 +113,7 @@ Run the main entry:
 python main_agent.py
 ```
 
-Example prompt (inside `main_workflow.py`):
+Example prompt (inside `main_agent.py`):
 ```python
 init = {
     "requirement": "分析 MSFT, NVDA 和 META, 并在discord给我发简报"
