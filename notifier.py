@@ -9,7 +9,10 @@ def send_discord(webhook_url: str, content: str, mention_id: Optional[str] = Non
             "flags": 4,
             "username": "stock agent bot"
         }
-        requests.post(webhook_url, json=payload, timeout=10)
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        print(f"[DEBUG][discord] status code: {response.status_code}, {response.text}")
+        if response.content:
+            print(f"[DEBUG][discord] response: {response.text}")
         return True
     except Exception as e:
         print(f"Discord notification failed: {str(e)}")

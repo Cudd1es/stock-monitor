@@ -42,7 +42,6 @@ def ticker_price(ticker:str, timezone:str="America/Toronto") -> list[Dict[str, A
         now = datetime.now()
         current_time = now.strftime("%H:%M")
         timezone = timezone
-        #timezone = state["rules"].get("timezone", "America/Toronto")
         price_now = ticker_checker.get_intraday_price_at(ticker, current_time, timezone)
         prev_close = ticker_checker.get_previous_close(ticker)
         if price_now is None or prev_close is None:
@@ -111,6 +110,7 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
     {context}
 
     Output in {language}, use clear bullets and a one-line summary at the end.
+    For first line, clearly show statistics like current price, price change, change percentage, etc.
     """
     brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
     # Fallback
@@ -126,6 +126,7 @@ system_prompt = (
     "You are a professional stock-tracking assistant."
     "Append additional summaries or professional comments from your end based on report"
     "language should match language in user prompt, unless there is special needs in user prompt"
+    "for each ticker, send report individually, do not merge all reports and send together because it may cause length exceed"
 )
 
 
@@ -134,8 +135,9 @@ agent = create_agent(
     tools=tools,
     system_prompt=system_prompt,
 )
-
+#"分析 MSFT, NVDA 和 META, 并在discord给我发简报"
+user_content = "分析 MSFT, NVDA 和 META, 并在discord给我发简报"
 
 result = agent.invoke({
-    "messages": [{"role": "user", "content": "分析 MSFT, NVDA 和 META, 并在discord给我发简报"}]
+    "messages": [{"role": "user", "content":user_content}]
 })
