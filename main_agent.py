@@ -32,7 +32,8 @@ yf_lock = Lock()
 @tool("ticker_price")
 def ticker_price(ticker:str, timezone:str="America/Toronto") -> list[Dict[str, Any]]:
     """
-    Use yfinance API to get ticker data (current price, previous close, change percent)
+    Use yfinance API to get ticker data (ticker: stock ticker symbol, price_now: current price,
+    prev_close: previous close price, change_pct: change percent)
     :param ticker: ticker symbol
     :param timezone: user location timezone, e.g.: "America/Toronto"
     :return: dictionary of ticker data
@@ -136,7 +137,7 @@ agent = create_agent(
     system_prompt=system_prompt,
 )
 #"分析 MSFT, NVDA 和 META, 并在discord给我发简报"
-user_content = "分析 MSFT, NVDA 和 META, 并在discord给我发简报"
+user_content = input("I am stock ticker monitor agent, how can I help you?\n")
 
 result = agent.invoke({
     "messages": [{"role": "user", "content":user_content}]
