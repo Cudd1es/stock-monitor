@@ -13,6 +13,7 @@ import news_collector
 from dotenv import load_dotenv
 import os
 from openai import OpenAI
+import logging
 
 # load llm api key in .env
 load_dotenv()
@@ -20,6 +21,14 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 client = OpenAI(api_key=api_key)
 
+# log
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    filename="./logs/agent.log",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # define state
 """class AgentState(TypedDict):
@@ -55,7 +64,8 @@ def ticker_price(ticker:str, timezone:str="America/Toronto") -> list[Dict[str, A
             "prev_close": prev_close,
             "change_pct": change_pct if change_pct else 0.0,
         })
-        print(f"[DEBUG][ticker_price] snapshot: {snapshot}")
+        #print(f"[DEBUG][ticker_price] snapshot: {snapshot}")
+        logger.info(f"[ticker_price] ticker price: {ticker}")
         return snapshot
 
 @tool("ticker_news")
@@ -66,8 +76,10 @@ def ticker_news(ticker:str) -> List[Dict[str, Any]]:
     :return: list of ticker news with reference link
     """
     news = news_collector.fetch_news_headlines(ticker, 5)
-    print(f"[DEBUG][ticker_news] news count: {len(news)}")
-    print(f"[DEBUG][ticker_news] news: {news}")
+    #print(f"[DEBUG][ticker_news] news count: {len(news)}")
+    #print(f"[DEBUG][ticker_news] news: {news}")
+    logger.info(f"[ticker_news] news count: {len(news)}")
+    logger.info(f"[ticker_news] news: {news}")
     return news
 
 @tool("send_notification")
@@ -84,7 +96,8 @@ def send_notification(method:str, content:str):
     mention_id = (base_cfg.get("discord") or {}).get("mention_id")
     #print(f"[DEBUG] discord message: {content}")
     notifier.notify(method, "[DAILY BRIEF]\n" + content, discord_webhook=webhook, mention_id=mention_id)
-    print(f"[DEBUG][send_notification] notified via: {method}")
+    #print(f"[DEBUG][send_notification] notified via: {method}")
+    logger.info(f"[send_notification] notified via: {method}")
     return
 
 @tool("generate_report")
@@ -118,7 +131,8 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
     if not brief.strip():
         bullets = "\n".join([f"- {l}" for l in lines]) or "No price snapshot."
         brief = f"{bullets}\nNo price snapshot provided, cannot generate summary."
-    print(f"[DEBUG][generate_report] brief (first 120): {brief[:120]}")
+    #print(f"[DEBUG][generate_report] brief (first 120): {brief[:120]}")
+    logger.info(f"[generate_report] brief: {brief[:120]}")
     return brief
 
 # create agent
