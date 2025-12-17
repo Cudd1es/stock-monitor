@@ -122,6 +122,7 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
         language= language,
         context= context,
     )
+    logger.info(f"[generate_report] generated generate_report prompt: {prompt}")
     brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
     # Fallback
     if not brief.strip():
@@ -135,7 +136,7 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
 tools = [ticker_price, ticker_news, send_notification, generate_report]
 prompt_manager = PromptManager()
 system_prompt = prompt_manager.render_prompt(name="langgraph_agent")["system"]
-
+logger.info(f"[system_prompt] generated system_prompt: {system_prompt}")
 
 agent = create_agent(
     model="gpt-4o",
