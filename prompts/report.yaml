@@ -7,7 +7,7 @@ task:
   Write a concise end-of-day style report for the following tickers {{ticker}}.
 rules: |
   1. For each ticker, summarize news briefs with corresponding links.
-  2. Emphasize any move beyond ±{{threshold}}%. Be neutral and factual. Avoid investment advice.
+  2. Emphasize any significant move. Be neutral and factual. Avoid investment advice.
   3. Use ONLY the provided inputs.
   4. Output in {{language}}, use clear bullets and a one-line summary at the end.
   5. For first line, clearly show statistics like current price, price change, change percentage, etc.

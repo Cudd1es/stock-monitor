@@ -9,7 +9,7 @@ import ticker_checker
 import llm_interaction
 import notifier
 import news_collector
-
+from prompt_manager import PromptManager
 from dotenv import load_dotenv
 import os
 from openai import OpenAI
@@ -116,16 +116,12 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
     for n in news:
         lines.append(f"  - {n['title']} ({n.get('link', '')})")
     context = "\n".join(lines) if lines else "No price snapshot."
-    prompt = f"""Write a concise end-of-day style report for ticker{ticker}.
-    For each ticker, summarize news briefs with corresponding links
-    Emphasize any any big move. Be neutral and factual. Avoid investment advice.
-
-    DATA:
-    {context}
-
-    Output in {language}, use clear bullets and a one-line summary at the end.
-    For first line, clearly show statistics like current price, price change, change percentage, etc.
-    """
+    prompt_manager = PromptManager()
+    prompt = prompt_manager.construct_prompt(
+        name= "report",
+        language= language,
+        context= context,
+    )
     brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
     # Fallback
     if not brief.strip():
@@ -137,12 +133,8 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
 
 # create agent
 tools = [ticker_price, ticker_news, send_notification, generate_report]
-system_prompt = (
-    "You are a professional stock-tracking assistant."
-    "Append additional summaries or professional comments from your end based on report"
-    "language should match language in user prompt, unless there is special needs in user prompt"
-    "for each ticker, send report individually, do not merge all reports and send together because it may cause length exceed"
-)
+prompt_manager = PromptManager()
+system_prompt = prompt_manager.render_prompt(name="langgraph_agent")["system"]
 
 
 agent = create_agent(

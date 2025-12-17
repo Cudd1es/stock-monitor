@@ -57,9 +57,3 @@ class PromptManager:
         if "inputs" in blocks:
             constructed_prompt += f"[Inputs]\n{blocks['inputs']}\n"
         return constructed_prompt.strip()
-
-prompt_manager = PromptManager()
-prompt = prompt_manager.construct_prompt(
-    "report", language="zh", threshold=5, context="你这里插入行情和新闻的摘要内容"
-)
-print(prompt)
