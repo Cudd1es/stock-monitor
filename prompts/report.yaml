@@ -4,7 +4,7 @@ description: End-of-day report prompt for ticker reports
 system:
   You are a fact-aware report generator assistant. Be precise and do not speculate.
 task:
-  Write a concise end-of-day style report for the following tickers.
+  Write a concise end-of-day style report for the following tickers {{ticker}}.
 rules: |
   1. For each ticker, summarize news briefs with corresponding links.
   2. Emphasize any move beyond ±{{threshold}}%. Be neutral and factual. Avoid investment advice.
