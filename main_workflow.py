@@ -1,12 +1,19 @@
+import argparse
 import time
 import uuid
 import core
-from typing import TypedDict, List, Dict, Any
+from datetime import datetime
+from typing import TypedDict, List, Dict, Any, Optional
+from zoneinfo import ZoneInfo
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 import parser
 import notifier
 import news_collector
+import monitor
+
+ALERT_STORE_PATH = "state/alerts.json"
+DEFAULT_REQUIREMENT = "Check MSFT and META price and give me English report in discord"
 
 
 # define state
@@ -20,6 +27,8 @@ class AgentState(TypedDict):
     errors: List[str]                   # error log
     plan: List[str]                     # available actions
     _notified: bool                     # whether notified
+    alert_store: str                    # path of the alert dedup store; no dedup when absent
+    alerts_only: bool                   # skip news/brief/notify when no new alert fired
 
 
 # define nodes
@@ -40,7 +49,12 @@ def node_price(state: AgentState) -> AgentState:
 
 def node_judge(state: AgentState) -> AgentState:
     threshold = float(state["rules"]["alert_threshold"])
-    state["alerts"] = core.find_alerts(state.get("snapshot", []), threshold)
+    rows = core.find_alert_rows(state.get("snapshot", []), threshold)
+    if state.get("alert_store"):
+        timezone = state["rules"].get("timezone", monitor.DEFAULT_TZ)
+        today = datetime.now(ZoneInfo(timezone)).date().isoformat()
+        rows = monitor.AlertStore(state["alert_store"]).filter_new(rows, threshold, today)
+    state["alerts"] = [core.format_alert(row) for row in rows]
     return state
 
 def node_news(state:AgentState) -> AgentState:
@@ -80,10 +94,14 @@ def node_supervisor(state: AgentState) -> AgentState:
         plan.append("parse")
     if "snapshot" not in state:
         plan.append("price")
-    if state.get("rules", {}).get("news_enabled", True) and "news_map" not in state:
-        plan.append("news")
     if "alerts" not in state:
         plan.append("judge")
+    elif state.get("alerts_only") and not state["alerts"]:
+        # scheduled check with nothing new to report: stay quiet
+        state["plan"] = plan
+        return state
+    if state.get("rules", {}).get("news_enabled", True) and "news_map" not in state:
+        plan.append("news")
     if "brief" not in state:
         plan.append("brief")
     if not state.get("_notified", False):
@@ -142,14 +160,35 @@ def build_graph():
 
     return g
 
+def run_once(app, rules: Dict[str, Any], alert_store: Optional[str] = None, alerts_only: bool = False) -> AgentState:
+    init = {"rules": rules, "alerts_only": alerts_only}
+    if alert_store:
+        init["alert_store"] = alert_store
+    return app.invoke(init, config={"configurable": {"thread_id": str(uuid.uuid4())}})
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Stock monitor (workflow mode)")
+    ap.add_argument("requirement", nargs="?", default=DEFAULT_REQUIREMENT,
+                    help="natural-language monitoring requirement")
+    ap.add_argument("--once", action="store_true", help="run a single check now and exit")
+    args = ap.parse_args()
+
+    rules = parser.parse_user_requirement(args.requirement)
+    print(f"[MONITOR] rules: {rules}")
+    app = build_graph().compile(checkpointer=MemorySaver())
+
+    if args.once:
+        run_once(app, rules)
+        return
+
+    # interval mode only speaks up when a new alert fires; daily mode always sends the brief
+    alerts_only = rules["schedule_mode"] == "interval"
+    try:
+        monitor.run_loop(rules, lambda: run_once(app, rules, ALERT_STORE_PATH, alerts_only))
+    except KeyboardInterrupt:
+        print("[MONITOR] stopped")
+
+
 if __name__ == "__main__":
-    graph = build_graph()
-    app = graph.compile(checkpointer=MemorySaver())
-    init = {
-        "requirement": "Check MSFT and META price and give me English report in discord"
-    }
-    out = app.invoke(
-        init,
-        config={"configurable": {"thread_id": str(uuid.uuid4())}}
-    )
-    print(out.keys())
+    main()

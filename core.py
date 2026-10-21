@@ -11,13 +11,16 @@ def fmt_number(value) -> str:
     return f"{value:.2f}" if isinstance(value, (int, float)) else "N/A"
 
 
+def find_alert_rows(snapshot: List[Dict[str, Any]], threshold: float) -> List[Dict[str, Any]]:
+    return [row for row in snapshot if abs(row.get("change_pct") or 0.0) > threshold]
+
+
+def format_alert(row: Dict[str, Any]) -> str:
+    return f"{row['ticker']} moved {row['change_pct']:.2f}% (now {fmt_number(row.get('price_now'))})"
+
+
 def find_alerts(snapshot: List[Dict[str, Any]], threshold: float) -> List[str]:
-    alerts = []
-    for row in snapshot:
-        change_pct = row.get("change_pct") or 0.0
-        if abs(change_pct) > threshold:
-            alerts.append(f"{row['ticker']} moved {change_pct:.2f}% (now {fmt_number(row.get('price_now'))})")
-    return alerts
+    return [format_alert(row) for row in find_alert_rows(snapshot, threshold)]
 
 
 def build_context(snapshot: List[Dict[str, Any]], news_map: Dict[str, List[Dict]]) -> str:

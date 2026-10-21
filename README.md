@@ -95,17 +95,23 @@ discord:
 ## Usage
 
 ### Use Workflow Mode
-Run the main entry:
+Pass the requirement on the command line. The monitor keeps running and checks on the schedule in your requirement; stop it with Ctrl+C:
 ```bash
-python main_workflow.py
+python main_workflow.py "Every 10 minutes check MSFT and NVDA, alert me in discord if they move more than 3%"
 ```
 
-Example prompt (inside `main_workflow.py`):
-```python
-init = {
-    "requirement": "Check MSFT and META price and tell me in discord"
-}
+Run a single check right now and exit:
+```bash
+python main_workflow.py --once "Check MSFT and META price and give me English report in discord"
 ```
+
+Scheduling (market timezone defaults to `America/Toronto`, weekdays only, exchange holidays not handled):
+- **daily** (default): runs once per weekday at `schedule_time` (e.g. "after market close" → 16:30) and always sends the brief.
+- **interval** ("every N minutes"): checks every N minutes from 09:30 open, plus once at 16:00 close.
+  It stays quiet unless a new alert fires, then sends the alert together with a brief.
+
+Alert dedup: a ticker alerts once per day per direction, and again only when its move crosses the next
+multiple of the threshold (with 5%: at 5%, then 10%, ...). State lives in `state/alerts.json`, so restarts don't re-alert.
 
 
 ### Use Agent Mode
@@ -127,7 +133,8 @@ init = {
 
 ## Project Structure
 ```
-main_workflow.py    # LangGraph workflow definition
+main_workflow.py    # LangGraph workflow definition and monitor CLI
+monitor.py          # Scheduling (daily / interval) and alert dedup store
 main_agent.py       # LangGraph agent definition
 core.py             # Shared logic for both modes: prices, context, brief, config
 parser.py           # Parse natural language into structured rules

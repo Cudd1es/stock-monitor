@@ -20,3 +20,6 @@ venv/
 *.un~
 *.swp
 
+
+# monitor state
+state/
