@@ -90,3 +90,65 @@ def test_empty_config_returns_none(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text("")
     assert core.load_discord_config(str(cfg)) == (None, None)
+
+def test_context_includes_market_benchmarks():
+    market = [{"ticker": "SPY", "price_now": 500.0, "prev_close": 495.0, "change_pct": 1.01}]
+    ctx = build_context([{"ticker": "MSFT", "price_now": 1.0, "prev_close": 1.0, "change_pct": 0.0}], {}, market)
+    assert ctx.splitlines()[0] == "Market: SPY 1.01%"
+
+
+def test_context_includes_news_summary_and_source():
+    news = {"MSFT": [{"title": "Microsoft beats", "link": "https://a", "publisher": "Reuters",
+                      "summary": "Azure grew 40%."}]}
+    ctx = build_context([{"ticker": "MSFT", "price_now": 1.0, "prev_close": 1.0, "change_pct": 0.0}], news)
+    assert "  - [Reuters] Microsoft beats (https://a)" in ctx
+    assert "    Azure grew 40%." in ctx
+
+
+def test_context_says_when_no_relevant_news():
+    ctx = build_context([{"ticker": "MSFT", "price_now": 1.0, "prev_close": 1.0, "change_pct": 0.0}], {"MSFT": []})
+    assert "  - no company-specific news found" in ctx
+
+
+def test_fetch_market_snapshots_benchmarks(monkeypatch):
+    monkeypatch.setattr(core, "fetch_snapshot", lambda t, tz="America/Toronto": {"ticker": t})
+    assert [row["ticker"] for row in core.fetch_market()] == core.BENCHMARKS
+
+
+def test_intraday_brief_is_not_framed_as_end_of_day(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(core.llm_interaction, "ask_llm", lambda prompt, model=None: seen.setdefault("p", prompt))
+    core.generate_brief(["MSFT"], "ctx", "en", kind="intraday")
+    assert "intraday" in seen["p"].lower()
+    assert "{{" not in seen["p"]
+
+
+RESEARCH = {
+    "MSFT": {
+        "analyst": {"consensus": {"strong_buy": 1, "buy": 2, "hold": 0, "sell": 0, "strong_sell": 0},
+                    "price_target": None, "rating_changes": [],
+                    "earnings": {"date": "2026-10-28", "eps_avg": None, "eps_low": None, "eps_high": None,
+                                 "revenue_avg": None}},
+        "filings": [{"form": "8-K", "date": "2026-10-20", "items": ["5.02"], "url": "https://sec/1"}],
+        "volume": {"volume": 3e6, "avg_volume": 1e6, "ratio": 3.0, "days": 20, "as_of": "11:00"},
+    }
+}
+
+
+def test_context_separates_facts_from_opinions():
+    row = {"ticker": "MSFT", "price_now": 1.0, "prev_close": 1.0, "change_pct": 0.0}
+    news = {"MSFT": [{"title": "Microsoft beats", "link": "https://a", "publisher": "Reuters", "summary": "s"}]}
+    lines = build_context([row], news, research=RESEARCH, today=datetime(2026, 10, 21).date()).splitlines()
+    facts, opinions = lines.index("  Facts:"), lines.index("  Opinions (analyst views, not facts):")
+    assert facts < opinions
+    fact_block, opinion_block = "\n".join(lines[facts:opinions]), "\n".join(lines[opinions:])
+    assert "SEC 8-K filed 2026-10-20" in fact_block
+    assert "Volume: 3.00x the 20-day average" in fact_block
+    assert "Next earnings report: 2026-10-28 (in 7 days)" in fact_block
+    assert "[Reuters] Microsoft beats" in fact_block
+    assert "Consensus of 3 analysts" in opinion_block
+
+
+def test_context_without_research_has_no_opinions_block():
+    row = {"ticker": "MSFT", "price_now": 1.0, "prev_close": 1.0, "change_pct": 0.0}
+    assert "Opinions" not in build_context([row], {"MSFT": []})

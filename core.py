@@ -1,6 +1,8 @@
-from typing import Any, Dict, List
-from datetime import datetime
+from typing import Any, Dict, List, Optional
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
+import analyst
+import filings
 import ticker_checker
 import llm_interaction
 from prompt_manager import PromptManager
@@ -23,16 +25,51 @@ def find_alerts(snapshot: List[Dict[str, Any]], threshold: float) -> List[str]:
     return [format_alert(row) for row in find_alert_rows(snapshot, threshold)]
 
 
-def build_context(snapshot: List[Dict[str, Any]], news_map: Dict[str, List[Dict]]) -> str:
+BENCHMARKS = ["SPY", "QQQ"]  # market reference for telling stock-specific moves from market-wide ones
+
+
+def build_context(
+    snapshot: List[Dict[str, Any]],
+    news_map: Dict[str, List[Dict]],
+    market: Optional[List[Dict[str, Any]]] = None,
+    research: Optional[Dict[str, Dict[str, Any]]] = None,
+    today: Optional[date] = None,
+) -> str:
+    """
+    Plain-text input for the report LLM. Per ticker, verifiable facts (volume, filings,
+    scheduled earnings, news) are kept apart from opinions (analyst ratings, targets, estimates).
+    """
+    today = today or datetime.now(ZoneInfo("America/Toronto")).date()
     lines = []
+    if market:
+        lines.append("Market: " + ", ".join(f'{m["ticker"]} {fmt_number(m.get("change_pct"))}%' for m in market))
     for row in snapshot:
         lines.append(
             f'{row["ticker"]}: now={fmt_number(row.get("price_now"))}, '
             f'prev_close={fmt_number(row.get("prev_close"))}, change={fmt_number(row.get("change_pct"))}%'
         )
+        res = (research or {}).get(row["ticker"]) or {}
+        facts = [f"  - {line}" for line in
+                 ticker_checker.volume_fact_lines(res.get("volume"))
+                 + filings.fact_lines(res.get("filings") or [])
+                 + analyst.fact_lines(res.get("analyst"), today)]
+        if row["ticker"] in news_map and not news_map[row["ticker"]]:
+            facts.append("  - no company-specific news found")
         for n in news_map.get(row["ticker"], []):
-            lines.append(f"  - {n['title']} ({n.get('link', '')})")
+            source = f"[{n['publisher']}] " if n.get("publisher") else ""
+            facts.append(f"  - {source}{n['title']} ({n.get('link', '')})")
+            if n.get("summary"):
+                facts.append(f"    {n['summary']}")
+        if facts:
+            lines += ["  Facts:"] + facts
+        opinions = analyst.opinion_lines(res.get("analyst"), row.get("price_now"), today)
+        if opinions:
+            lines += ["  Opinions (analyst views, not facts):"] + [f"  - {line}" for line in opinions]
     return "\n".join(lines) if lines else "No price snapshot."
+
+
+def fetch_market(timezone: str = "America/Toronto") -> List[Dict[str, Any]]:
+    return [fetch_snapshot(ticker, timezone) for ticker in BENCHMARKS]
 
 
 def fetch_snapshot(ticker: str, timezone: str = "America/Toronto") -> Dict[str, Any]:
@@ -44,12 +81,20 @@ def fetch_snapshot(ticker: str, timezone: str = "America/Toronto") -> Dict[str, 
     return {"ticker": ticker, "price_now": price_now, "prev_close": prev_close, "change_pct": change_pct}
 
 
-def generate_brief(tickers: List[str], context: str, language: str = "zh") -> str:
+REPORT_KINDS = {
+    "daily": "daily report",
+    "intraday": "intraday alert (the market is still open and prices are live; "
+                "do not describe them as closing or end-of-day figures)",
+}
+
+
+def generate_brief(tickers: List[str], context: str, language: str = "zh", kind: str = "daily") -> str:
     prompt = PromptManager().construct_prompt(
         name="report",
         ticker=", ".join(tickers),
         language=language,
         context=context,
+        report_kind=REPORT_KINDS[kind],
     )
     brief = llm_interaction.ask_llm(prompt) or ""
     if not brief.strip():

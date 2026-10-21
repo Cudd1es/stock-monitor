@@ -11,3 +11,7 @@ defaults:
 discord:
   webhook_url: "https://discord.com/api/webhooks/xxxx/xxxx"
   mention_id: "xxxxxxxx"
+
+# SEC EDGAR asks automated clients to identify themselves; filings are skipped without this
+sec:
+  user_agent: "Your Name your-email@example.com"

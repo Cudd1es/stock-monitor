@@ -49,11 +49,13 @@ def send_discord(webhook_url: str, content: str, mention_id: Optional[str] = Non
             return False
     return True
 
-def notify(method: str, message: str, discord_webhook: Optional[str], mention_id: Optional[str] = None) -> None:
+def notify(method: str, message: str, discord_webhook: Optional[str], mention_id: Optional[str] = None) -> bool:
+    """Deliver the message; returns whether it got through."""
     method = (method or "console").lower()
     if method == "discord" and discord_webhook:
         ok = send_discord(discord_webhook, message, mention_id)
         if not ok:
             print("[NOTIFY][discord][fail] Discord notify failed]", message)
-    else:
-        print("[NOTIFY][console]", message)
+        return ok
+    print("[NOTIFY][console]", message)
+    return True

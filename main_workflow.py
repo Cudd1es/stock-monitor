@@ -10,7 +10,10 @@ from langgraph.checkpoint.memory import MemorySaver
 import parser
 import notifier
 import news_collector
+import ticker_checker
 import monitor
+import analyst
+import filings
 
 ALERT_STORE_PATH = "state/alerts.json"
 DEFAULT_REQUIREMENT = "Check MSFT and META price and give me English report in discord"
@@ -22,7 +25,9 @@ class AgentState(TypedDict):
     rules: Dict[str, Any]               # parsed user requirements
     snapshot: List[Dict[str, Any]]      # stock ticker price info
     news_map: Dict[str, List[Dict]]     # news list
+    research: Dict[str, Dict[str, Any]] # per ticker: analyst views, SEC filings, relative volume
     alerts: List[str]                   # alert content
+    alert_rows: List[Dict[str, Any]]    # snapshot rows behind the alerts
     brief: str                          # summary content
     errors: List[str]                   # error log
     plan: List[str]                     # available actions
@@ -47,18 +52,32 @@ def node_price(state: AgentState) -> AgentState:
     state["snapshot"] = snapshot
     return state
 
+def _today(rules: Dict[str, Any]) -> str:
+    return datetime.now(ZoneInfo(rules.get("timezone", monitor.DEFAULT_TZ))).date().isoformat()
+
+def _report_tickers(state: AgentState) -> List[str]:
+    """Intraday alerts only talk about the tickers that triggered; daily briefs cover all of them."""
+    if state.get("alerts_only"):
+        return [row["ticker"] for row in state.get("alert_rows", [])]
+    return state["rules"]["tickers"]
+
+def record_sent_alerts(state: AgentState) -> None:
+    """Mark this run's alerts as delivered so later runs don't repeat them."""
+    if state.get("alert_store") and state.get("alert_rows"):
+        threshold = float(state["rules"]["alert_threshold"])
+        monitor.AlertStore(state["alert_store"]).record(state["alert_rows"], threshold, _today(state["rules"]))
+
 def node_judge(state: AgentState) -> AgentState:
     threshold = float(state["rules"]["alert_threshold"])
     rows = core.find_alert_rows(state.get("snapshot", []), threshold)
     if state.get("alert_store"):
-        timezone = state["rules"].get("timezone", monitor.DEFAULT_TZ)
-        today = datetime.now(ZoneInfo(timezone)).date().isoformat()
-        rows = monitor.AlertStore(state["alert_store"]).filter_new(rows, threshold, today)
+        rows = monitor.AlertStore(state["alert_store"]).filter_new(rows, threshold, _today(state["rules"]))
+    state["alert_rows"] = rows
     state["alerts"] = [core.format_alert(row) for row in rows]
     return state
 
 def node_news(state:AgentState) -> AgentState:
-    tickers = state["rules"]["tickers"]
+    tickers = _report_tickers(state)
     news = {}
     for ticker in tickers:
         news[ticker] = news_collector.fetch_news_headlines(ticker, 5)
@@ -67,10 +86,26 @@ def node_news(state:AgentState) -> AgentState:
     print(f"[DEBUG][node_news] news: {news}")
     return state
 
+def node_research(state: AgentState) -> AgentState:
+    timezone = state["rules"].get("timezone", monitor.DEFAULT_TZ)
+    research = {}
+    for ticker in _report_tickers(state):
+        research[ticker] = {
+            "analyst": analyst.fetch_analyst_view(ticker),
+            "filings": filings.fetch_recent_filings(ticker),
+            "volume": ticker_checker.get_relative_volume(ticker, timezone),
+        }
+    state["research"] = research
+    return state
+
 def node_brief(state: AgentState) -> AgentState:
     rules = state["rules"]
-    context = core.build_context(state.get("snapshot", []), state.get("news_map", {}))
-    state["brief"] = core.generate_brief(rules["tickers"], context, rules.get("report_language", "zh"))
+    tickers = _report_tickers(state)
+    snapshot = [row for row in state.get("snapshot", []) if row["ticker"] in tickers]
+    market = core.fetch_market(rules.get("timezone", monitor.DEFAULT_TZ))
+    context = core.build_context(snapshot, state.get("news_map", {}), market, state.get("research"))
+    kind = "intraday" if state.get("alerts_only") else "daily"
+    state["brief"] = core.generate_brief(tickers, context, rules.get("report_language", "zh"), kind=kind)
     return state
 
 def node_notify(state:AgentState) -> AgentState:
@@ -80,9 +115,17 @@ def node_notify(state:AgentState) -> AgentState:
     alerts = state.get("alerts", [])
     brief = state.get("brief", "")
 
-    if alerts:
-        notifier.notify(method, "[ALERT]\n" + "\n".join(alerts), discord_webhook=webhook, mention_id=mention_id)
-    notifier.notify(method, "[DAILY BRIEF]\n" + brief, discord_webhook=webhook, mention_id=mention_id)
+    def send(message: str) -> bool:
+        return notifier.notify(method, message, discord_webhook=webhook, mention_id=mention_id)
+
+    if state.get("alerts_only"):
+        # intraday: one message, the alert followed by why it moved
+        alerts_sent = send("[INTRADAY ALERT]\n" + "\n".join(alerts) + "\n\n" + brief)
+    else:
+        alerts_sent = send("[ALERT]\n" + "\n".join(alerts)) if alerts else False
+        send("[DAILY BRIEF]\n" + brief)
+    if alerts_sent:
+        record_sent_alerts(state)
     state["_notified"] = True
     print(f"[DEBUG][node_notify] notified via: {method}, alerts: {len(alerts)}")
     return state
@@ -102,6 +145,8 @@ def node_supervisor(state: AgentState) -> AgentState:
         return state
     if state.get("rules", {}).get("news_enabled", True) and "news_map" not in state:
         plan.append("news")
+    if "research" not in state:
+        plan.append("research")
     if "brief" not in state:
         plan.append("brief")
     if not state.get("_notified", False):
@@ -123,7 +168,7 @@ def pop_next_action(state:AgentState) -> str:
 # build up graph
 
 def build_graph():
-    list_of_nodes = ["parse", "price", "news", "judge", "brief", "notify"]
+    list_of_nodes = ["parse", "price", "news", "research", "judge", "brief", "notify"]
     g = StateGraph(AgentState)
 
     # add nodes
@@ -134,6 +179,7 @@ def build_graph():
     g.add_node("brief", node_brief)
     g.add_node("notify", node_notify)
     g.add_node("news", node_news)
+    g.add_node("research", node_research)
 
     # entry
     g.set_entry_point("supervisor")
@@ -151,11 +197,12 @@ def build_graph():
         "brief": "brief",
         "notify": "notify",
         "news": "news",
+        "research": "research",
         "__END__": END,
     })
 
     # each node returns to router
-    for node in ["parse", "price", "news", "judge", "brief", "notify"]:
+    for node in list_of_nodes:
         g.add_edge(node, "supervisor")
 
     return g
