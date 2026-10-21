@@ -12,14 +12,12 @@ import news_collector
 from prompt_manager import PromptManager
 from dotenv import load_dotenv
 import os
-from openai import OpenAI
 import logging
+from langchain_openai import ChatOpenAI
+from llm_interaction import LLM_BASE_URL, LLM_MODEL
 
 # load llm api key in .env
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-
-client = OpenAI(api_key=api_key)
 
 # log
 os.makedirs("logs", exist_ok=True)
@@ -128,7 +126,7 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
         context= context,
     )
     logger.info(f"[generate_report] generated generate_report prompt: {prompt}")
-    brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
+    brief = llm_interaction.ask_llm(prompt) or ""
     # Fallback
     if not brief.strip():
         bullets = "\n".join([f"- {l}" for l in lines]) or "No price snapshot."
@@ -143,8 +141,14 @@ prompt_manager = PromptManager()
 system_prompt = prompt_manager.render_prompt(name="langgraph_agent")["system"]
 logger.info(f"[system_prompt] generated system_prompt: {system_prompt}")
 
+llm = ChatOpenAI(
+    model=LLM_MODEL,
+    base_url=LLM_BASE_URL,
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+)
+
 agent = create_agent(
-    model="gpt-4o",
+    model=llm,
     tools=tools,
     system_prompt=system_prompt,
 )

@@ -47,7 +47,7 @@ def generate_brief(tickers: List[str], context: str, language: str = "zh") -> st
         language=language,
         context=context,
     )
-    brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
+    brief = llm_interaction.ask_llm(prompt) or ""
     if not brief.strip():
         bullets = "\n".join(f"- {line}" for line in context.splitlines())
         brief = f"{bullets}\nLLM unavailable, showing raw data."

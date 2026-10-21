@@ -1,19 +1,13 @@
 import time
-from datetime import datetime
 import uuid
 import core
-
 from typing import TypedDict, List, Dict, Any
-
-import yaml
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-
 import parser
-import ticker_checker
-import llm_interaction
 import notifier
 import news_collector
+
 
 # define state
 class AgentState(TypedDict):
@@ -61,36 +55,12 @@ def node_news(state:AgentState) -> AgentState:
 
 def node_brief(state: AgentState) -> AgentState:
     rules = state["rules"]
-    language = rules.get("report_language", "zh")
-    threshold = float(rules["alert_threshold"])
     context = core.build_context(state.get("snapshot", []), state.get("news_map", {}))
-
-    # prompt
-    prompt = f"""Write a concise end-of-day style report for the following tickers.
-For each ticker, summarize news briefs with corresponding links
-Emphasize any move beyond ±{threshold:.1f}% . Be neutral and factual. Avoid investment advice.
-
-DATA:
-{context}
-
-Output in {language}, use clear bullets and a one-line summary at the end.
-"""
-    brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
-    # Fallback
-    if not brief.strip():
-        bullets = "\n".join(f"- {line}" for line in context.splitlines())
-        brief = f"{bullets}\nNo price snapshot provided, cannot generate summary."
-
-    state["brief"] = brief
-    print(f"[DEBUG][node_brief] brief (first 120): {brief[:120]}")
+    state["brief"] = core.generate_brief(rules["tickers"], context, rules.get("report_language", "zh"))
     return state
 
-
 def node_notify(state:AgentState) -> AgentState:
-    with open("config.yaml", "r") as f:
-        base_cfg = yaml.safe_load(f)
-    webhook = (base_cfg.get("discord") or {}).get("webhook_url")
-    mention_id = (base_cfg.get("discord") or {}).get("mention_id")
+    webhook, mention_id = core.load_discord_config()
 
     method = state["rules"].get("notify_method", "console")
     alerts = state.get("alerts", [])

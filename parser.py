@@ -181,7 +181,7 @@ def _validate_and_fix(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "interval_minutes": int(interval),
     }
 
-def parse_user_requirement(requirement_text: str, model: str = "gpt-4o") -> Dict[str, Any]:
+def parse_user_requirement(requirement_text: str, model: str | None = None) -> Dict[str, Any]:
     """
     Use LLM to parse a natural-language requirement into a structured config dict.
     """

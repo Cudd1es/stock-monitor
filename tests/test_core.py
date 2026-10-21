@@ -35,7 +35,7 @@ def test_fetch_snapshot_market_closed(monkeypatch):
 def test_generate_brief_fills_every_template_variable(monkeypatch):
     seen = {}
 
-    def fake_llm(prompt, model):
+    def fake_llm(prompt, model=None):
         seen["prompt"] = prompt
         return "ok"
 
