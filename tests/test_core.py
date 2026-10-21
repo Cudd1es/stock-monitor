@@ -1,3 +1,5 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from core import find_alerts, build_context
 import core
 
@@ -31,6 +33,30 @@ def test_fetch_snapshot_market_closed(monkeypatch):
     monkeypatch.setattr(core.ticker_checker, "get_intraday_price_at", lambda *a: None)
     monkeypatch.setattr(core.ticker_checker, "get_previous_close", lambda t: 100.0)
     assert core.fetch_snapshot("MSFT")["change_pct"] is None
+
+def test_fetch_snapshot_reads_clock_in_target_timezone(monkeypatch):
+    # machine clock is Chicago (11:07), market timezone is Toronto (12:07)
+    instant = datetime(2026, 10, 21, 16, 7, tzinfo=ZoneInfo("UTC"))
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return instant.astimezone(ZoneInfo("America/Chicago")).replace(tzinfo=None)
+            return instant.astimezone(tz)
+
+    seen = {}
+
+    def fake_intraday(ticker, hhmm, timezone):
+        seen["hhmm"] = hhmm
+        return 110.0
+
+    monkeypatch.setattr(core, "datetime", FrozenDatetime)
+    monkeypatch.setattr(core.ticker_checker, "get_intraday_price_at", fake_intraday)
+    monkeypatch.setattr(core.ticker_checker, "get_previous_close", lambda t: 100.0)
+    core.fetch_snapshot("MSFT", "America/Toronto")
+    assert seen["hhmm"] == "12:07"
+
 
 def test_generate_brief_fills_every_template_variable(monkeypatch):
     seen = {}
