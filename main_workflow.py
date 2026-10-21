@@ -1,18 +1,13 @@
 import time
-from datetime import datetime
 import uuid
-
+import core
 from typing import TypedDict, List, Dict, Any
-
-import yaml
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-
 import parser
-import ticker_checker
-import llm_interaction
 import notifier
 import news_collector
+
 
 # define state
 class AgentState(TypedDict):
@@ -34,39 +29,18 @@ def node_parse(state:AgentState) -> AgentState:
     print(f"[DEBUG][node_parse] parsed rules: \n{parsed_rules}")
     return state
 
-def node_price(state:AgentState) -> AgentState:
-    tickers = state["rules"]["tickers"]
-    snapshot = []
-
-    now = datetime.now()
-    current_time = now.strftime("%H:%M")
+def node_price(state: AgentState) -> AgentState:
     timezone = state["rules"].get("timezone", "America/Toronto")
-    for ticker in tickers:
+    snapshot = []
+    for ticker in state["rules"]["tickers"]:
         time.sleep(0.3)
-        price_now = ticker_checker.get_intraday_price_at(ticker, current_time, timezone)
-        prev_close = ticker_checker.get_previous_close(ticker)
-        if price_now is None or prev_close is None:
-            continue
-        change_pct = ticker_checker.get_change_pct_vs_prev_close(ticker, price_now)
-        snapshot.append({
-            "ticker": ticker,
-            "price_now": price_now,
-            "prev_close": prev_close,
-            "change_pct": change_pct if change_pct else 0.0,
-        })
+        snapshot.append(core.fetch_snapshot(ticker, timezone))
     state["snapshot"] = snapshot
-    print(f"[DEBUG][node_price] snapshot: {snapshot}")
     return state
 
-def node_judge(state:AgentState) -> AgentState:
+def node_judge(state: AgentState) -> AgentState:
     threshold = float(state["rules"]["alert_threshold"])
-    alerts: List[str] = []
-    for row in state.get("snapshot", []):
-        change_pct = row.get("change_pct", 0.0)
-        if abs(change_pct) > threshold:
-            alerts.append(f"{row['ticker']} moved {row['change_pct']:.2f}% (now {row['price_now']:.2f})")
-    state["alerts"] = alerts
-    print(f"[DEBUG][node_judge] alerts: {alerts}")
+    state["alerts"] = core.find_alerts(state.get("snapshot", []), threshold)
     return state
 
 def node_news(state:AgentState) -> AgentState:
@@ -79,45 +53,14 @@ def node_news(state:AgentState) -> AgentState:
     print(f"[DEBUG][node_news] news: {news}")
     return state
 
-def node_brief(state:AgentState) -> AgentState:
+def node_brief(state: AgentState) -> AgentState:
     rules = state["rules"]
-    language = rules.get("report_language", "zh")
-    threshold = float(rules["alert_threshold"])
-    news_map = state.get("news_map", {})  # absent when news_enabled is False
-    # build context
-    lines = []
-    for row in state.get("snapshot", []):
-        lines.append(f'{row["ticker"]}: now={row["price_now"]:.2f}, prev_close={row["prev_close"]:.2f}, change={row["change_pct"]:.2f}%')
-        news = news_map.get(row["ticker"], [])
-        for n in news:
-            lines.append(f"  - {n['title']} ({n.get('link', '')})")
-    context = "\n".join(lines) if lines else "No price snapshot."
-
-    # prompt
-    prompt = f"""Write a concise end-of-day style report for the following tickers.
-For each ticker, summarize news briefs with corresponding links
-Emphasize any move beyond ±{threshold:.1f}% . Be neutral and factual. Avoid investment advice.
-
-DATA:
-{context}
-
-Output in {language}, use clear bullets and a one-line summary at the end.
-"""
-    brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
-    # Fallback
-    if not brief.strip():
-        bullets = "\n".join([f"- {l}" for l in lines]) or "No price snapshot."
-        brief = f"{bullets}\nNo price snapshot provided, cannot generate summary."
-
-    state["brief"] = brief
-    print(f"[DEBUG][node_brief] brief (first 120): {brief[:120]}")
+    context = core.build_context(state.get("snapshot", []), state.get("news_map", {}))
+    state["brief"] = core.generate_brief(rules["tickers"], context, rules.get("report_language", "zh"))
     return state
 
 def node_notify(state:AgentState) -> AgentState:
-    with open("config.yaml", "r") as f:
-        base_cfg = yaml.safe_load(f)
-    webhook = (base_cfg.get("discord") or {}).get("webhook_url")
-    mention_id = (base_cfg.get("discord") or {}).get("mention_id")
+    webhook, mention_id = core.load_discord_config()
 
     method = state["rules"].get("notify_method", "console")
     alerts = state.get("alerts", [])

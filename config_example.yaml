@@ -1,5 +1,4 @@
 # config.yaml
-openai_model: gpt-4o
 timezone: America/Toronto
 
 # Fallback defaults if user doesn’t specify

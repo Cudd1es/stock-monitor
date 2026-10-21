@@ -75,9 +75,11 @@ pip install -r requirements.txt
 ```
 
 ### 2. Add your API key
-Create a `.env` file in the project root:
+Create a `.env` file in the project root with your [OpenRouter](https://openrouter.ai) key:
 ```
-OPENAI_API_KEY=sk-your-key-here
+OPENROUTER_API_KEY=sk-or-your-key-here
+# optional, defaults to minimax/minimax-m3.1-flash:free
+LLM_MODEL=minimax/minimax-m3.1-flash:free
 ```
 
 ### 3. Configure Discord (optional)
@@ -127,11 +129,13 @@ init = {
 ```
 main_workflow.py    # LangGraph workflow definition
 main_agent.py       # LangGraph agent definition
+core.py             # Shared logic for both modes: prices, context, brief, config
 parser.py           # Parse natural language into structured rules
 ticker_checker.py   # Fetch stock prices and compute change
 news_collector.py   # Get recent headlines from yfinance
-llm_interaction.py  # Interface with OpenAI models
+llm_interaction.py  # Interface with LLMs via OpenRouter (OpenAI-compatible API)
 notifier.py         # Send Discord or console notifications
+tests/              # pytest unit tests
 ```
 
 ---
@@ -139,7 +143,7 @@ notifier.py         # Send Discord or console notifications
 ## Acknowledgements
 - [LangGraph](https://python.langchain.com/docs/langgraph)
 - [yfinance](https://github.com/ranaroussi/yfinance)
-- [OpenAI API](https://platform.openai.com)
+- [OpenRouter](https://openrouter.ai)
 
 ---
 

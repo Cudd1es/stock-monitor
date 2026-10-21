@@ -1,5 +1,6 @@
 from datetime import datetime, time as dtime
 from zoneinfo import ZoneInfo
+import pandas as pd
 import yfinance as yf
 from typing import Optional, Tuple
 
@@ -44,8 +45,11 @@ def get_intraday_price_at(ticker: str, target_hhmm: str, timezone_str: str = "Am
         if df_until.empty:
             return None
 
-        ret = float(df_until["Close"].iloc[-1])
-        return ret
+        close = df_until["Close"]
+        # yf.download returns (Price, Ticker) MultiIndex columns, so "Close" is a one-column DataFrame
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        return float(close.iloc[-1])
     except Exception:
         return None
 
