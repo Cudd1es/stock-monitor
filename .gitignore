@@ -15,3 +15,8 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# vim
+*.un~
+*.swp
+
