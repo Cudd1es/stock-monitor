@@ -35,28 +35,13 @@ def node_parse(state:AgentState) -> AgentState:
     print(f"[DEBUG][node_parse] parsed rules: \n{parsed_rules}")
     return state
 
-def node_price(state:AgentState) -> AgentState:
-    tickers = state["rules"]["tickers"]
-    snapshot = []
-
-    now = datetime.now()
-    current_time = now.strftime("%H:%M")
+def node_price(state: AgentState) -> AgentState:
     timezone = state["rules"].get("timezone", "America/Toronto")
-    for ticker in tickers:
+    snapshot = []
+    for ticker in state["rules"]["tickers"]:
         time.sleep(0.3)
-        price_now = ticker_checker.get_intraday_price_at(ticker, current_time, timezone)
-        prev_close = ticker_checker.get_previous_close(ticker)
-        if price_now is None or prev_close is None:
-            continue
-        change_pct = ticker_checker.get_change_pct_vs_prev_close(ticker, price_now)
-        snapshot.append({
-            "ticker": ticker,
-            "price_now": price_now,
-            "prev_close": prev_close,
-            "change_pct": change_pct if change_pct else 0.0,
-        })
+        snapshot.append(core.fetch_snapshot(ticker, timezone))
     state["snapshot"] = snapshot
-    print(f"[DEBUG][node_price] snapshot: {snapshot}")
     return state
 
 def node_judge(state: AgentState) -> AgentState:

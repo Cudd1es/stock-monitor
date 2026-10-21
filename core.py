@@ -1,6 +1,10 @@
 from typing import Any, Dict, List
 from datetime import datetime
 import ticker_checker
+import llm_interaction
+from prompt_manager import PromptManager
+import yaml
+
 
 def fmt_number(value) -> str:
     return f"{value:.2f}" if isinstance(value, (int, float)) else "N/A"
@@ -35,3 +39,28 @@ def fetch_snapshot(ticker: str, timezone: str = "America/Toronto") -> Dict[str, 
         change_pct = (price_now - prev_close) / prev_close * 100.0
     return {"ticker": ticker, "price_now": price_now, "prev_close": prev_close, "change_pct": change_pct}
 
+
+def generate_brief(tickers: List[str], context: str, language: str = "zh") -> str:
+    prompt = PromptManager().construct_prompt(
+        name="report",
+        ticker=", ".join(tickers),
+        language=language,
+        context=context,
+    )
+    brief = llm_interaction.ask_llm(prompt, model="gpt-4o") or ""
+    if not brief.strip():
+        bullets = "\n".join(f"- {line}" for line in context.splitlines())
+        brief = f"{bullets}\nLLM unavailable, showing raw data."
+    return brief
+
+
+def load_discord_config(path: str = "config.yaml") -> tuple:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            base_cfg = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return None, None
+    if not isinstance(base_cfg, dict):
+        return None, None
+    discord_cfg = base_cfg.get("discord") or {}
+    return discord_cfg.get("webhook_url"), discord_cfg.get("mention_id")
