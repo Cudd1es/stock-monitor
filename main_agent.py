@@ -83,7 +83,14 @@ def send_notification(method:str, content:str):
 
 @tool("generate_report")
 def generate_report(ticker: str, snapshot: Dict[str, Any], news: List[Dict[str, Any]], language: str = "zh") -> str:
-    """...docstring 保持原样..."""
+    """
+    Generate report from ticker snapshot data and news
+    :param ticker: ticker symbol for the report
+    :param snapshot: ticker data returned by ticker_price
+    :param news: news related to the ticker, returned by ticker_news
+    :param language: language of the report, e.g.: "zh", "en", "jp"
+    :return: report text
+    """
     # the LLM builds these arguments itself, so don't trust snapshot to carry the ticker key
     row = {**snapshot, "ticker": ticker}
     context = core.build_context([row], {ticker: news})
