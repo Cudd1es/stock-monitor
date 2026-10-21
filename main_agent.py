@@ -3,10 +3,6 @@ from langchain.agents import create_agent
 import core
 from typing import List, Dict, Any
 from threading import Lock
-import yaml
-from datetime import datetime
-import ticker_checker
-import llm_interaction
 import notifier
 import news_collector
 from prompt_manager import PromptManager
@@ -20,12 +16,6 @@ from llm_interaction import LLM_BASE_URL, LLM_MODEL
 load_dotenv()
 
 # log
-os.makedirs("logs", exist_ok=True)
-logging.basicConfig(
-    filename="./logs/agent.log",
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 # define state
