@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import ticker_checker
 import llm_interaction
 from prompt_manager import PromptManager
@@ -32,7 +33,7 @@ def build_context(snapshot: List[Dict[str, Any]], news_map: Dict[str, List[Dict]
 
 
 def fetch_snapshot(ticker: str, timezone: str = "America/Toronto") -> Dict[str, Any]:
-    price_now = ticker_checker.get_intraday_price_at(ticker, datetime.now().strftime("%H:%M"), timezone)
+    price_now = ticker_checker.get_intraday_price_at(ticker, datetime.now(ZoneInfo(timezone)).strftime("%H:%M"), timezone)
     prev_close = ticker_checker.get_previous_close(ticker)
     change_pct = None
     if price_now is not None and prev_close:

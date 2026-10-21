@@ -1,17 +1,34 @@
 from typing import Dict, List, Optional
 import yfinance as yf
 
+
+def _fetch_raw_items(ticker: str, topk: int) -> list:
+    """
+    Raw news items from Ticker(...).news, falling back to Search(...).news when empty.
+    """
+    try:
+        items = yf.Ticker(ticker).news or []
+    except Exception:
+        items = []
+    if items:
+        return items
+    # Yahoo's ticker news endpoint (/xhr/ncp) returns 404 as of 2026-10; fall back to search
+    try:
+        items = yf.Search(ticker, news_count=topk).news or []
+    except Exception:
+        items = []
+    if not items:
+        print(f"[WARN][news] no news from Ticker.news or Search for {ticker}")
+    return items
+
+
 def fetch_news_headlines(ticker: str, topk: int = 3) -> List[Dict[str, str]]:
     """
     Robust extractor for yfinance Ticker(...).news
     Returns a list of {title, link}, best-effort across schema variants.
     """
     out: List[Dict[str, str]] = []
-    try:
-        t = yf.Ticker(ticker)
-        items = t.news or []
-    except Exception:
-        return out
+    items = _fetch_raw_items(ticker, topk)
 
     for it in items:
         title = None
