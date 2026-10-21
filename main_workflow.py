@@ -63,7 +63,7 @@ def node_judge(state:AgentState) -> AgentState:
     alerts: List[str] = []
     for row in state.get("snapshot", []):
         change_pct = row.get("change_pct", 0.0)
-        if change_pct > threshold:
+        if abs(change_pct) > threshold:
             alerts.append(f"{row['ticker']} moved {row['change_pct']:.2f}% (now {row['price_now']:.2f})")
     state["alerts"] = alerts
     print(f"[DEBUG][node_judge] alerts: {alerts}")
@@ -83,7 +83,7 @@ def node_brief(state:AgentState) -> AgentState:
     rules = state["rules"]
     language = rules.get("report_language", "zh")
     threshold = float(rules["alert_threshold"])
-    news_map = state["news_map"]
+    news_map = state.get("news_map", {})  # absent when news_enabled is False
     # build context
     lines = []
     for row in state.get("snapshot", []):

@@ -84,8 +84,8 @@ OPENAI_API_KEY=sk-your-key-here
 Create a `config.yaml`:
 ```yaml
 discord:
-  webhook_url: "https://discord.com/api/webhooks/xxxx/xxxx",
-    mention_id: "xxxxxxxx"
+  webhook_url: "https://discord.com/api/webhooks/xxxx/xxxx"
+  mention_id: "xxxxxxxx"
 ```
 
 ---

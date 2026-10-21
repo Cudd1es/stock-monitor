@@ -110,15 +110,20 @@ def generate_report(ticker:str, snapshot:Dict[str, Any], news:List[Dict[str, Any
     :param language: language of the report, e.g.: "zh", "en", "jp"
     :return: report text
     """
+    # price may be None outside trading hours
+    def fmt(value) -> str:
+        return f"{value:.2f}" if isinstance(value, (int, float)) else "N/A"
+
     # build context
     lines = [
-        f'{ticker}: now={snapshot["price_now"]:.2f}, prev_close={snapshot["prev_close"]:.2f}, change={snapshot["change_pct"]:.2f}%']
+        f'{ticker}: now={fmt(snapshot.get("price_now"))}, prev_close={fmt(snapshot.get("prev_close"))}, change={fmt(snapshot.get("change_pct"))}%']
     for n in news:
         lines.append(f"  - {n['title']} ({n.get('link', '')})")
     context = "\n".join(lines) if lines else "No price snapshot."
     prompt_manager = PromptManager()
     prompt = prompt_manager.construct_prompt(
         name= "report",
+        ticker= ticker,
         language= language,
         context= context,
     )
