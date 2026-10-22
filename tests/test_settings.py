@@ -126,3 +126,48 @@ def test_dump_then_load_round_trips_and_writes_only_overrides(tmp_path):
     assert text.startswith(settings.HEADER)
     assert "alert_threshold: 5" not in text and "research: false" in text
     assert settings.load_watchlist(str(path), D) == rules
+
+
+# --- hot reload ---
+
+GOOD = "tickers: [{symbol: MSFT}]"
+BAD = "tickers: [{symbol: MSFT, colour: red}]"
+
+
+def test_reloader_picks_up_edits(tmp_path):
+    path = tmp_path / "w.yaml"
+    path.write_text(GOOD)
+    r = settings.WatchlistReloader(str(path), D)
+    assert [t.symbol for t in r.get()] == ["MSFT"]
+    path.write_text("tickers: [{symbol: MSFT}, {symbol: NVDA}]")
+    assert [t.symbol for t in r.get()] == ["MSFT", "NVDA"]
+
+
+def test_reloader_keeps_last_good_and_reports_once(tmp_path):
+    path = tmp_path / "w.yaml"
+    path.write_text(GOOD)
+    errors = []
+    r = settings.WatchlistReloader(str(path), D, on_error=errors.append)
+    good = r.get()
+    path.write_text(BAD)
+    assert r.get() == good
+    assert r.get() == good
+    assert len(errors) == 1
+    assert "colour" in errors[0]
+
+
+def test_reloader_reports_again_after_recovering(tmp_path):
+    path = tmp_path / "w.yaml"
+    path.write_text(GOOD)
+    errors = []
+    r = settings.WatchlistReloader(str(path), D, on_error=errors.append)
+    r.get()
+    for text in (BAD, GOOD, BAD):
+        path.write_text(text)
+        r.get()
+    assert len(errors) == 2
+
+
+def test_reloader_first_load_failure_raises(tmp_path):
+    with pytest.raises(ValueError):
+        settings.WatchlistReloader(str(tmp_path / "missing.yaml"), D).get()

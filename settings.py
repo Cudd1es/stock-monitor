@@ -2,7 +2,7 @@ import os
 import re
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 HEADER = "# 由程序维护(python watchlist.py)。手动编辑也可以,但注释会在下次写入时丢失。\n"
@@ -160,3 +160,30 @@ def dump_watchlist(rules: List[TickerRule], path: str, defaults: TickerDefaults)
     tmp.write_text(HEADER + yaml.safe_dump({"tickers": entries}, sort_keys=False, allow_unicode=True),
                    encoding="utf-8")
     os.replace(tmp, target)
+
+
+class WatchlistReloader:
+    """
+    Re-reads the watchlist on every get() so edits apply without a restart. A broken edit keeps
+    the last valid watchlist and is reported once (again only after it was fixed and broke anew).
+    """
+
+    def __init__(self, path: str, defaults: TickerDefaults, on_error: Callable[[str], Any] = print):
+        self.path = path
+        self.defaults = defaults
+        self.on_error = on_error
+        self._last_good: Optional[List[TickerRule]] = None
+        self._last_error: Optional[str] = None
+
+    def get(self) -> List[TickerRule]:
+        try:
+            rules = load_watchlist(self.path, self.defaults)
+        except ValueError as e:
+            if self._last_good is None:
+                raise
+            if str(e) != self._last_error:
+                self._last_error = str(e)
+                self.on_error(f"[WARN][watchlist] {e}; still using the last valid watchlist")
+            return self._last_good
+        self._last_good, self._last_error = rules, None
+        return rules
