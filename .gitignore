@@ -1,6 +1,7 @@
 # secrets
 .env
 config.yaml
+watchlist.yaml
 
 # runtime output
 logs/

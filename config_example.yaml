@@ -1,11 +1,18 @@
-# config.yaml
+# config.yaml — global settings and secrets; read once at startup
 timezone: America/Toronto
 
-# Fallback defaults if user doesn’t specify
+schedule:
+  daily_brief: "16:10"     # HH:MM, brief for every ticker after the close; null turns it off
+  intraday_minutes: 10     # check for moves every N minutes during market hours; null turns it off
+
+notify_method: discord     # console | discord
+report_language: zh        # en | zh | jp
+
+# Per-ticker defaults; any ticker in watchlist.yaml can override them
 defaults:
-  alert_threshold: 5.0
-  schedule_time: "16:30"
-  notify_method: "console"
+  alert_threshold: 5.0     # alert when |change vs previous close| exceeds this percent
+  intraday: true           # include in intraday move checks
+  research: true           # fetch news, SEC filings, analyst views and relative volume
 
 # Notification secrets
 discord:

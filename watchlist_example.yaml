@@ -1,0 +1,8 @@
+# 由程序维护(python watchlist.py)。手动编辑也可以,但注释会在下次写入时丢失。
+tickers:
+  - symbol: MSFT
+  - symbol: TSLA
+    alert_threshold: 8
+  - symbol: SPY
+    intraday: false
+    research: false
