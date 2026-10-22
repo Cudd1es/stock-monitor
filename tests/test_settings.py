@@ -48,6 +48,13 @@ def test_settings_intraday_only(tmp_path):
     "report_language: fr",
     "defaults: {alert_treshold: 3}",
     "defaults: {alert_threshold: 0}",
+    "timezone: Mars/Base",
+    "timezone:",
+    "schedule: '16:10'",
+    "defaults: [1]",
+    "discord: hook",
+    "schedule: {",
+    "notify_method: discord",
 ])
 def test_invalid_settings_raise(tmp_path, text):
     with pytest.raises(ValueError):
@@ -171,3 +178,10 @@ def test_reloader_reports_again_after_recovering(tmp_path):
 def test_reloader_first_load_failure_raises(tmp_path):
     with pytest.raises(ValueError):
         settings.WatchlistReloader(str(tmp_path / "missing.yaml"), D).get()
+
+
+def test_settings_repr_hides_discord_secrets(tmp_path):
+    s = settings.load_settings(write(tmp_path, "config.yaml",
+                                     'notify_method: discord\ndiscord: {webhook_url: "https://hook/secret", mention_id: "42"}'))
+    assert "secret" not in repr(s) and "42" not in repr(s)
+    assert s.discord_webhook == "https://hook/secret"

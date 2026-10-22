@@ -1,5 +1,5 @@
 # config.yaml — global settings and secrets; read once at startup
-timezone: America/Toronto
+timezone: America/Toronto   # market timezone: trading hours, holidays and schedule times are read in it (keep an ET-equivalent zone)
 
 schedule:
   daily_brief: "16:10"     # HH:MM, brief for every ticker after the close; null turns it off

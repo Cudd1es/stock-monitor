@@ -1,8 +1,9 @@
 import os
 import re
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 
 HEADER = "# 由程序维护(python watchlist.py)。手动编辑也可以,但注释会在下次写入时丢失。\n"
@@ -34,8 +35,8 @@ class Settings:
     notify_method: str = "console"
     report_language: str = "zh"
     defaults: TickerDefaults = TickerDefaults()
-    discord_webhook: Optional[str] = None
-    discord_mention_id: Optional[str] = None
+    discord_webhook: Optional[str] = field(default=None, repr=False)  # secret: keep out of logs
+    discord_mention_id: Optional[str] = field(default=None, repr=False)
 
 
 OVERRIDE_FIELDS = tuple(f.name for f in fields(TickerDefaults))
@@ -76,15 +77,30 @@ def _check_overrides(raw: Dict[str, Any], where: str, allowed=OVERRIDE_FIELDS) -
     return {k: _check_field(k, v, where) for k, v in raw.items()}
 
 
+def _section(cfg: Dict[str, Any], name: str, path: str) -> Dict[str, Any]:
+    value = cfg.get(name) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: `{name}` must be a mapping, got {value!r}")
+    return value
+
+
 def load_settings(path: str = "config.yaml") -> Settings:
     try:
         cfg = _read_yaml(path) or {}
     except FileNotFoundError:
         raise ValueError(f"{path} not found; copy config_example.yaml to start")
+    except yaml.YAMLError as e:
+        raise ValueError(f"{path}: invalid YAML: {e}")
     if not isinstance(cfg, dict):
         raise ValueError(f"{path}: expected a mapping at the top level")
 
-    schedule = cfg.get("schedule") or {}
+    timezone = cfg.get("timezone", Settings.timezone)
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        raise ValueError(f"{path}: unknown timezone {timezone!r}")
+
+    schedule = _section(cfg, "schedule", path)
     daily_brief = schedule.get("daily_brief", Settings.daily_brief)
     intraday = schedule.get("intraday_minutes", Settings.intraday_minutes)
     if daily_brief is not None and not _is_time(daily_brief):
@@ -102,10 +118,12 @@ def load_settings(path: str = "config.yaml") -> Settings:
     if language not in LANGUAGES:
         raise ValueError(f"{path}: report_language must be one of {LANGUAGES}, got {language!r}")
 
-    defaults = TickerDefaults(**_check_overrides(cfg.get("defaults") or {}, f"{path}: defaults"))
-    discord = cfg.get("discord") or {}
+    defaults = TickerDefaults(**_check_overrides(_section(cfg, "defaults", path), f"{path}: defaults"))
+    discord = _section(cfg, "discord", path)
+    if notify == "discord" and not discord.get("webhook_url"):
+        raise ValueError(f"{path}: notify_method is discord but discord.webhook_url is missing")
     return Settings(
-        timezone=cfg.get("timezone", Settings.timezone),
+        timezone=timezone,
         daily_brief=daily_brief,
         intraday_minutes=intraday,
         notify_method=notify,
