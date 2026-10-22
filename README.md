@@ -84,9 +84,14 @@ pip install -r requirements.txt
 Create a `.env` file in the project root with your [OpenRouter](https://openrouter.ai) key:
 ```
 OPENROUTER_API_KEY=sk-or-your-key-here
-# optional, defaults to minimax/minimax-m3.1-flash:free
-LLM_MODEL=minimax/minimax-m3.1-flash:free
+# optional, defaults to nvidia/nemotron-3-ultra-550b-a55b:free
+LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+# optional, tried in order when the main model is rate-limited, down or retired; empty disables fallbacks
+LLM_FALLBACK_MODELS=google/gemma-4-31b-it:free,openrouter/free
 ```
+Rate limits, server errors and dropped connections are retried once on the same model before moving to the next one;
+if every model fails, the brief falls back to the raw data. Free models change often: check
+[OpenRouter's free models](https://openrouter.ai/models?max_price=0) if one starts failing.
 
 ### 3. Create `config.yaml`
 Copy `config_example.yaml` to `config.yaml` and edit it. It holds the global settings and secrets and is read once at startup:
