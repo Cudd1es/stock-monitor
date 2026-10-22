@@ -13,16 +13,18 @@ def fmt_number(value) -> str:
     return f"{value:.2f}" if isinstance(value, (int, float)) else "N/A"
 
 
-def find_alert_rows(snapshot: List[Dict[str, Any]], threshold: float) -> List[Dict[str, Any]]:
-    return [row for row in snapshot if abs(row.get("change_pct") or 0.0) > threshold]
+def find_alert_rows(snapshot: List[Dict[str, Any]], thresholds: Dict[str, float]) -> List[Dict[str, Any]]:
+    """Rows whose move exceeds that ticker's own threshold; tickers without one are skipped."""
+    return [row for row in snapshot
+            if row["ticker"] in thresholds and abs(row.get("change_pct") or 0.0) > thresholds[row["ticker"]]]
 
 
 def format_alert(row: Dict[str, Any]) -> str:
     return f"{row['ticker']} moved {row['change_pct']:.2f}% (now {fmt_number(row.get('price_now'))})"
 
 
-def find_alerts(snapshot: List[Dict[str, Any]], threshold: float) -> List[str]:
-    return [format_alert(row) for row in find_alert_rows(snapshot, threshold)]
+def find_alerts(snapshot: List[Dict[str, Any]], thresholds: Dict[str, float]) -> List[str]:
+    return [format_alert(row) for row in find_alert_rows(snapshot, thresholds)]
 
 
 BENCHMARKS = ["SPY", "QQQ"]  # market reference for telling stock-specific moves from market-wide ones

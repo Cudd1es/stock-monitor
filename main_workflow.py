@@ -61,17 +61,20 @@ def _report_tickers(state: AgentState) -> List[str]:
         return [row["ticker"] for row in state.get("alert_rows", [])]
     return state["rules"]["tickers"]
 
+def _thresholds(state: AgentState) -> Dict[str, float]:
+    threshold = float(state["rules"]["alert_threshold"])
+    return {t: threshold for t in state["rules"]["tickers"]}
+
 def record_sent_alerts(state: AgentState) -> None:
     """Mark this run's alerts as delivered so later runs don't repeat them."""
     if state.get("alert_store") and state.get("alert_rows"):
-        threshold = float(state["rules"]["alert_threshold"])
-        monitor.AlertStore(state["alert_store"]).record(state["alert_rows"], threshold, _today(state["rules"]))
+        monitor.AlertStore(state["alert_store"]).record(state["alert_rows"], _thresholds(state), _today(state["rules"]))
 
 def node_judge(state: AgentState) -> AgentState:
-    threshold = float(state["rules"]["alert_threshold"])
-    rows = core.find_alert_rows(state.get("snapshot", []), threshold)
+    thresholds = _thresholds(state)
+    rows = core.find_alert_rows(state.get("snapshot", []), thresholds)
     if state.get("alert_store"):
-        rows = monitor.AlertStore(state["alert_store"]).filter_new(rows, threshold, _today(state["rules"]))
+        rows = monitor.AlertStore(state["alert_store"]).filter_new(rows, thresholds, _today(state["rules"]))
     state["alert_rows"] = rows
     state["alerts"] = [core.format_alert(row) for row in rows]
     return state

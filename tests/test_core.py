@@ -6,12 +6,19 @@ import core
 
 def test_drop_beyond_threshold_alerts():
     rows = [{"ticker": "MSFT", "price_now": 90.0, "change_pct": -6.0}]
-    assert len(find_alerts(rows, 5.0)) == 1
+    assert len(find_alerts(rows, {"MSFT": 5.0})) == 1
 
 
 def test_move_equal_to_threshold_does_not_alert():
     rows = [{"ticker": "MSFT", "price_now": 105.0, "change_pct": 5.0}]
-    assert find_alerts(rows, 5.0) == []
+    assert find_alerts(rows, {"MSFT": 5.0}) == []
+
+
+def test_alert_thresholds_are_per_ticker():
+    rows = [{"ticker": "MSFT", "price_now": 90.0, "change_pct": -6.0},
+            {"ticker": "TSLA", "price_now": 90.0, "change_pct": -6.0},
+            {"ticker": "SPY", "price_now": 90.0, "change_pct": -6.0}]  # not in the thresholds: skipped
+    assert [r["ticker"] for r in core.find_alert_rows(rows, {"MSFT": 5.0, "TSLA": 8.0})] == ["MSFT"]
 
 
 def test_missing_price_shows_na():

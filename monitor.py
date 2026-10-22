@@ -97,15 +97,22 @@ def _next_interval(after: datetime, minutes: int) -> datetime:
         day += timedelta(days=1)
 
 
-def next_run_time(rules: Dict[str, Any], after: datetime) -> datetime:
+KINDS = ("intraday", "daily")  # order when both fall due at the same time
+
+
+def next_run(settings, after: datetime) -> Tuple[datetime, List[str]]:
     """
-    Next scheduled run strictly after `after`, in the market timezone.
-    daily: schedule_time on each weekday; interval: every interval_minutes during market hours.
+    Earliest scheduled time strictly after `after` (in the market timezone), and every kind due then:
+    "intraday" every intraday_minutes during market hours, "daily" at daily_brief on each trading day.
     """
-    after = after.astimezone(ZoneInfo(rules.get("timezone", DEFAULT_TZ)))
-    if rules.get("schedule_mode") == "interval":
-        return _next_interval(after, int(rules["interval_minutes"]))
-    return _next_daily(after, rules["schedule_time"])
+    after = after.astimezone(ZoneInfo(settings.timezone))
+    due = {}
+    if settings.intraday_minutes:
+        due["intraday"] = _next_interval(after, int(settings.intraday_minutes))
+    if settings.daily_brief:
+        due["daily"] = _next_daily(after, settings.daily_brief)
+    run_at = min(due.values())
+    return run_at, [kind for kind in KINDS if due.get(kind) == run_at]
 
 
 class AlertStore:
@@ -143,18 +150,18 @@ class AlertStore:
         entry = self._data.get(ticker)
         return entry if isinstance(entry, dict) and entry.get("day") == day else {"day": day}
 
-    def filter_new(self, rows: List[Dict[str, Any]], threshold: float, day: str) -> List[Dict[str, Any]]:
+    def filter_new(self, rows: List[Dict[str, Any]], thresholds: Dict[str, float], day: str) -> List[Dict[str, Any]]:
         """Rows worth alerting on. Nothing is recorded: call `record` once the alert was delivered."""
         fresh = []
         for row in rows:
-            level = self._level(row, threshold)
+            level = self._level(row, thresholds[row["ticker"]])
             if level and level[1] > self._entry(row["ticker"], day).get(level[0], 0):
                 fresh.append(row)
         return fresh
 
-    def record(self, rows: List[Dict[str, Any]], threshold: float, day: str) -> None:
+    def record(self, rows: List[Dict[str, Any]], thresholds: Dict[str, float], day: str) -> None:
         for row in rows:
-            level = self._level(row, threshold)
+            level = self._level(row, thresholds[row["ticker"]])
             if not level:
                 continue
             entry = self._entry(row["ticker"], day)
@@ -165,26 +172,27 @@ class AlertStore:
 
 
 def run_loop(
-    rules: Dict[str, Any],
-    tick: Callable[[], Any],
+    settings,
+    tick: Callable[[str], Any],
     now: Optional[Callable[[], datetime]] = None,
     sleep: Callable[[float], Any] = _time.sleep,
     max_runs: Optional[int] = None,
 ) -> None:
-    """Call `tick` at every scheduled time until interrupted (or `max_runs` is reached)."""
-    tz = ZoneInfo(rules.get("timezone", DEFAULT_TZ))
+    """Call `tick(kind)` for each kind due at every scheduled time until interrupted (or `max_runs` times)."""
+    tz = ZoneInfo(settings.timezone)
     now = now or (lambda: datetime.now(tz))
     runs = 0
     after = now()
     while max_runs is None or runs < max_runs:
-        run_at = next_run_time(rules, after)
-        print(f"[MONITOR] next run at {run_at:%Y-%m-%d %H:%M %Z}")
+        run_at, kinds = next_run(settings, after)
+        print(f"[MONITOR] next run at {run_at:%Y-%m-%d %H:%M %Z}: {', '.join(kinds)}")
         while (remaining := (run_at - now()).total_seconds()) > 0:
             sleep(min(remaining, MAX_SLEEP_SECONDS))
-        try:
-            tick()
-        except Exception:
-            # one failed run (network, yfinance, LLM) must not kill the monitor
-            print(f"[MONITOR][error] run at {run_at:%H:%M} failed:\n{traceback.format_exc()}")
+        for kind in kinds:
+            try:
+                tick(kind)
+            except Exception:
+                # one failed run (network, yfinance, LLM) must not kill the monitor
+                print(f"[MONITOR][error] {kind} run at {run_at:%H:%M} failed:\n{traceback.format_exc()}")
         runs += 1
         after = max(run_at, now())
