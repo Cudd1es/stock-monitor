@@ -38,3 +38,14 @@ def test_no_mention_prefix_when_mention_id_missing(monkeypatch):
 def test_error_status_returns_false(monkeypatch):
     capture_posts(monkeypatch, status_code=400, text='{"content": ["Must be 2000 or fewer in length."]}')
     assert notifier.send_discord("https://hook", "hello") is False
+
+
+def test_notify_reports_discord_failure(monkeypatch):
+    capture_posts(monkeypatch, status_code=500, text="boom")
+    assert notifier.notify("discord", "hi", discord_webhook="https://hook") is False
+
+
+def test_notify_reports_success(monkeypatch):
+    capture_posts(monkeypatch)
+    assert notifier.notify("discord", "hi", discord_webhook="https://hook") is True
+    assert notifier.notify("console", "hi", discord_webhook=None) is True

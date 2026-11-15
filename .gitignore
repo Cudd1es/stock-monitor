@@ -1,6 +1,7 @@
 # secrets
 .env
 config.yaml
+watchlist.yaml
 
 # runtime output
 logs/
@@ -20,3 +21,6 @@ venv/
 *.un~
 *.swp
 
+
+# monitor state
+state/

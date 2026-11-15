@@ -1,204 +1,70 @@
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import yaml
 from llm_interaction import ask_llm
+from settings import TickerRule, normalize_symbol
 
-DEFAULTS = {
-    "alert_threshold": 5.0,
-    "notify_method": "console",
-    "schedule_time": "16:10",  # HH:MM 24h
-    "report_style": "summary",  # "summary" or "detailed"
-    "news_enabled": True,
-    "lookback_days": 5,
-    "report_language": "zh",
-    "schedule_mode": "daily",  # "daily" | "interval"
-    "interval_minutes": 0,  # integer > 0 when schedule_mode == "interval"
-}
+EDIT_PROMPT = """You edit the watchlist of a stock-monitoring agent.
+The user describes a change in natural language (possibly Chinese/English mixed).
+You MUST return ONLY a JSON array of operations (no extra text, no code fences):
 
-ALLOWED_NOTIFY_METHODS = [
-    "console",
-    "discord"
-]
-ALLOWED_REPORT_STYLES = [
-    "summary",
-    "detailed"
+[
+  {{"op": "add", "symbol": "NVDA", "alert_threshold": 3}},
+  {{"op": "update", "symbol": "SPY", "intraday": false}},
+  {{"op": "remove", "symbol": "MSFT"}}
 ]
 
-ALLOWED_LANGUAGES = [
-    "en",
-    "zh",
-    "jp"
-]
+Operations:
+- "add": start watching a ticker that is not in the current watchlist
+- "update": change settings of a ticker already in the watchlist
+- "remove": stop watching a ticker
 
-PARSER_PROMPT = """You are a strict configuration extractor for a stock-tracking agent.
-User will describe monitoring requirements in natural language (possibly Chinese/English mixed).
-You MUST return ONLY a valid JSON object (no extra text, no code fences) matching this schema:
-
-{{
-  "tickers": "string[]",                 // REQUIRED, 1..50 uppercase tickers, e.g., ["TSLA","AAPL"]
-  "alert_threshold": "number",           // OPTIONAL, percent like 4.0 means ±4%
-  "notify_method": "discord|console",      // OPTIONAL
-  "schedule_time": "HH:MM",              // OPTIONAL, 24h format, e.g., "16:30"
-  "report_style": "summary|detailed",    // OPTIONAL
-  "news_enabled": "boolean",             // OPTIONAL
-  "lookback_days": "integer"             // OPTIONAL, days to look back for trends (1..60)
-  "report_language": "zh|en|jp"            // OPTIONAL, language in the report
-  "schedule_mode": "daily|interval",   // OPTIONAL, default "daily"
-  "interval_minutes": "integer",       // OPTIONAL, required when schedule_mode="interval"
-}}
+Optional fields on "add" / "update" (include ONLY the ones the user asked to set):
+- "alert_threshold": number, percent move vs previous close that triggers an alert; "3%" -> 3
+- "intraday": boolean, whether to check the ticker for moves during market hours;
+  "no need to watch intraday" / "不用盯盘" -> false
+- "research": boolean, whether to fetch news, SEC filings and analyst views;
+  "no news" / "不要新闻" -> false
 
 Rules:
-- Normalize tickers to UPPERCASE, strip spaces, deduplicate.
-- If user mentions threshold in %, convert to number (e.g., "4%" -> 4.0).
-- If notify method is unclear, choose "console".
-- If schedule is like "after market close", use "16:30".
-- If user mentions daily, assume one run per day at "16:30".
-- If user says "every N minutes", set schedule_mode="interval"
-- If schedule_mode is "interval" and N <= 0 or missing, omit it and let system default.
-- If missing values, omit them so the system can apply defaults.
-- Return ONLY the JSON object, nothing else.
+- Use the ticker symbol as listed on Yahoo Finance, uppercase (e.g. "Nvidia" -> "NVDA", Berkshire B -> "BRK-B").
+- Only use "update" / "remove" for tickers in the current watchlist, and "add" for tickers not in it.
+- If the request changes nothing, return [].
 
-User requirement:
+Current watchlist (defaults already applied):
+{watchlist}
+
+User request:
 <<<
-{requirement}
+{request}
 >>>"""
 
-def _normalize_tickers(raw_tickers: List[str]) -> List[str]:
-    """Uppercase, strip, deduplicate, and keep only simple alphanumerics/dots (e.g., BRK.B)."""
-    seen = set()
-    cleaned: List[str] = []
-    for t in raw_tickers:
-        if not t:
-            continue
-        t_up = t.strip().upper()
-        if not re.fullmatch(r"[A-Z0-9]+(\.[A-Z])?", t_up):
-            t_up = re.sub(r"[^A-Z0-9\.]", "", t_up)
-        if t_up and t_up not in seen:
-            seen.add(t_up)
-            cleaned.append(t_up)
-    return cleaned[:50]
 
-def _is_valid_time(hhmm: str) -> bool:
-    """Check if time is in HHMM format."""
-    return bool(re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", hhmm))
-
-def _coerce_float(x: Any, default: float) -> float:
-    try:
-        return float(x)
-    except Exception:
-        return default
-
-def _coerce_int(x: Any, default: int) -> int:
-    try:
-        return int(x)
-    except Exception:
-        return default
-
-def _apply_defaults(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """if there are values in DEFAULTS not specified, apply the default values."""
-    out = dict(cfg)
-    for k, v in DEFAULTS.items():
-        if k not in out or out[k] in (None, "", [], {}):
-            out[k] = v
-    return out
-
-def _validate_and_fix(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    # tickers
-    tickers = cfg.get("tickers", [])
-    if not isinstance(tickers, list):
-        tickers = []
-    tickers = _normalize_tickers([str(t) for t in tickers])
-    if not tickers:
-        raise ValueError("No valid tickers parsed. Please specify at least one ticker symbol.")
-
-    # alert_threshold
-    alert = cfg.get("alert_threshold", None)
-    if isinstance(alert, str) and alert.strip().endswith("%"):
-        try:
-            alert = float(alert.strip().rstrip("%"))
-        except Exception:
-            alert = None
-    alert = _coerce_float(alert, DEFAULTS["alert_threshold"])
-    if alert <= 0 or alert > 50:
-        # keep a sane range
-        alert = DEFAULTS["alert_threshold"]
-
-    # notify_method
-    notify = cfg.get("notify_method", DEFAULTS["notify_method"])
-    if isinstance(notify, str):
-        notify = notify.lower().strip()
-    if notify not in ALLOWED_NOTIFY_METHODS:
-        notify = DEFAULTS["notify_method"]
-
-    # schedule_time
-    sched = cfg.get("schedule_time", DEFAULTS["schedule_time"])
-    if not isinstance(sched, str) or not _is_valid_time(sched.strip()):
-        sched = DEFAULTS["schedule_time"]
-
-    # report_style
-    style = cfg.get("report_style", DEFAULTS["report_style"])
-    if isinstance(style, str):
-        style = style.lower().strip()
-    if style not in ALLOWED_REPORT_STYLES:
-        style = DEFAULTS["report_style"]
-
-    # news_enabled
-    news_enabled = cfg.get("news_enabled", DEFAULTS["news_enabled"])
-    news_enabled = bool(news_enabled)
-
-    # lookback_days
-    lookback = _coerce_int(cfg.get("lookback_days", DEFAULTS["lookback_days"]), DEFAULTS["lookback_days"])
-    if lookback < 1 or lookback > 60:
-        lookback = DEFAULTS["lookback_days"]
-
-    # report_language
-    lang = (cfg.get("report_language", DEFAULTS["report_language"])).lower().strip()
-    if lang not in ALLOWED_LANGUAGES:
-        lang = DEFAULTS["report_language"]
-
-    # schedule_mode & interval_minutes
-    mode = (cfg.get("schedule_mode") or "daily").lower().strip()
-    if mode not in ("daily", "interval"):
-        mode = "daily"
-
-    interval = _coerce_int(cfg.get("interval_minutes", 0), 0)
-    if mode == "interval":
-        if interval <= 0 or interval > 24 * 60:
-            interval = 10
-    else:
-        interval = 0
-
-    return {
-        "tickers": tickers,
-        "alert_threshold": float(alert),
-        "notify_method": notify,
-        "schedule_time": sched,
-        "report_style": style,
-        "news_enabled": news_enabled,
-        "lookback_days": int(lookback),
-        "report_language": lang,
-        "schedule_mode": mode,
-        "interval_minutes": int(interval),
-    }
-
-def parse_user_requirement(requirement_text: str, model: str | None = None) -> Dict[str, Any]:
-    """
-    Use LLM to parse a natural-language requirement into a structured config dict.
-    """
-    prompt = PARSER_PROMPT.format(requirement=requirement_text)
-    raw = ask_llm(prompt, model=model).strip()
-
-    if not raw.startswith("{"):
-        match = re.search(r"\{.*\}\s*$", raw, flags=re.DOTALL)
+def _extract_json_array(raw: str) -> str:
+    raw = raw.strip()
+    if not raw.startswith("["):
+        match = re.search(r"\[.*\]", raw, flags=re.DOTALL)
         if match:
             raw = match.group(0)
+    return raw
 
+
+def parse_watchlist_edit(text: str, current: List[TickerRule], model: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Use the LLM to turn a natural-language request into watchlist edit operations.
+    Only the shape is checked here; apply_ops validates the fields.
+    """
+    watchlist = yaml.safe_dump([vars(rule) for rule in current], sort_keys=False) if current else "(empty)"
+    raw = ask_llm(EDIT_PROMPT.format(watchlist=watchlist, request=text), model=model) or ""
     try:
-        cfg_llm = json.loads(raw)
-        if not isinstance(cfg_llm, dict):
-            raise ValueError("LLM output is not a JSON object.")
-    except Exception as e:
-        raise ValueError(f"Failed to parse LLM JSON: {e}\nLLM raw output: {raw[:300]}")
-
-    final_cfg = _validate_and_fix(cfg_llm)
-    return final_cfg
+        ops = json.loads(_extract_json_array(raw))
+    except ValueError as e:
+        raise ValueError(f"LLM did not return a JSON array: {e}\nLLM raw output: {raw[:300]}")
+    if not isinstance(ops, list):
+        raise ValueError(f"LLM output is not a JSON array: {raw[:300]}")
+    for op in ops:
+        if not isinstance(op, dict) or "op" not in op or "symbol" not in op:
+            raise ValueError(f"each operation needs `op` and `symbol`, got {op!r}")
+        op["symbol"] = normalize_symbol(op["symbol"])
+    return ops
