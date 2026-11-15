@@ -1,6 +1,6 @@
 # Stock Monitor Agent
 
-A Python stock-monitoring assistant built with LangGraph, yfinance, and OpenRouter. It tracks price moves, gathers company news and research, and delivers contextual reports to the console or Discord.
+A Python stock-monitoring assistant built with LangGraph, yfinance, and OpenAI-compatible model APIs. It tracks price moves, gathers company news and research, and delivers contextual reports to the console or Discord.
 
 Two execution modes share the same data and report-generation functions:
 
@@ -39,18 +39,50 @@ On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.
 
 ### 2. Configure the model
 
-Create `.env` in the repository root:
+Create `.env` in the repository root. Both execution modes support endpoints implementing the **OpenAI-compatible Chat Completions API**. Choose one configuration below and restart the process after changing it.
+
+**OpenRouter (default; existing configurations still work):**
 
 ```dotenv
 OPENROUTER_API_KEY=your-openrouter-api-key
-
-# Optional: override the defaults in llm_interaction.py
+# Optional: select another OpenRouter model
 # LLM_MODEL=your-model-id
-# LLM_FALLBACK_MODELS=first-fallback-id,second-fallback-id
-# LLM_BASE_URL=https://openrouter.ai/api/v1
 ```
 
-The implementation defaults to `nvidia/nemotron-3-ultra-550b-a55b:free`, followed by `google/gemma-4-31b-it:free` and `openrouter/free`. These are repository defaults, not a guarantee of provider availability. Choose an available model from [OpenRouter](https://openrouter.ai/models); Agent mode requires tool-calling support. Set `LLM_FALLBACK_MODELS=` to disable the fallback chain.
+The repository defaults to `nvidia/nemotron-3-ultra-550b-a55b:free`, followed by `google/gemma-4-31b-it:free` and `openrouter/free`. These are code defaults, not a guarantee of provider availability. Select an available model from [OpenRouter](https://openrouter.ai/models).
+
+**Another API provider:**
+
+```dotenv
+LLM_BASE_URL=https://your-provider.example/v1
+LLM_API_KEY=your-provider-api-key
+LLM_MODEL=your-provider-model-id
+# Optional: models available through this same endpoint and key
+LLM_FALLBACK_MODELS=
+```
+
+Replace the example URL with your provider's API base URL, not the full `/chat/completions` URL. A service with a different native API requires an OpenAI-compatible gateway or a separate adapter.
+
+**Your own local or self-hosted model:**
+
+```dotenv
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_API_KEY=local
+LLM_MODEL=your-served-model-name
+LLM_FALLBACK_MODELS=
+```
+
+Start your model server separately and use its actual base URL and served model name. `local` is a non-secret placeholder required by the SDK for a server without authentication; use the real server key if authentication is enabled. This project connects to an inference server; it does not load model weights itself.
+
+| Variable | Behavior |
+| --- | --- |
+| `LLM_BASE_URL` | Defaults to `https://openrouter.ai/api/v1` |
+| `LLM_API_KEY` | Generic API key used by both Workflow and Agent modes |
+| `OPENROUTER_API_KEY` | Legacy fallback key, used only for the default OpenRouter endpoint when `LLM_API_KEY` is unset |
+| `LLM_MODEL` | Required for custom endpoints; defaults to the repository's model on OpenRouter |
+| `LLM_FALLBACK_MODELS` | Comma-separated model IDs on the same endpoint; empty disables fallbacks |
+
+Custom endpoints have **no automatic OpenRouter fallback models**, and never receive the legacy `OPENROUTER_API_KEY`. All fallback requests stay on the configured endpoint. Agent mode requires a model/server that supports tool calling; report generation and watchlist parsing use text completions. The fallback chain covers reports and parsing, not the Agent's tool-selection loop.
 
 ### 3. Create local configuration
 
@@ -195,7 +227,7 @@ The graph state carries settings, ticker rules, the run kind, snapshots, news, r
 
 ### Agent: model-directed tool use
 
-`main_agent.py` uses LangChain's `create_agent` and a `ChatOpenAI` client pointed at OpenRouter. The model chooses tool calls and when to finish.
+`main_agent.py` uses LangChain's `create_agent` and a `ChatOpenAI` client pointed at the configured model endpoint. The model chooses tool calls and when to finish.
 
 | Tool | Responsibility |
 | --- | --- |
@@ -269,7 +301,7 @@ Tests cover configuration validation, watchlist edits and reloads, scheduling, a
 | `ticker_checker.py` | Price data and relative volume |
 | `news_collector.py` | News retrieval, relevance filtering, article excerpts |
 | `analyst.py` / `filings.py` | Analyst and earnings data; SEC filings and press release excerpts |
-| `llm_interaction.py` | OpenRouter-compatible client, retry and fallback logic |
+| `llm_interaction.py` | OpenAI-compatible client, shared model configuration, retry and fallback logic |
 | `prompt_manager.py` / `prompts/` | Prompt rendering and report/Agent instructions |
 | `notifier.py` | Console and Discord delivery |
 | `tests/` | pytest suite |

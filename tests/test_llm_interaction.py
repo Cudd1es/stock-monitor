@@ -126,3 +126,50 @@ def test_client_does_its_own_retries_off_and_has_timeout(monkeypatch):
     client = llm_interaction._get_client()
     assert client.max_retries == 0
     assert client.timeout == llm_interaction.REQUEST_TIMEOUT_SECONDS
+
+
+def test_generic_key_takes_precedence(monkeypatch):
+    monkeypatch.setattr(llm_interaction, "LLM_BASE_URL", llm_interaction.OPENROUTER_BASE_URL)
+    monkeypatch.setenv("LLM_API_KEY", "generic-test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "legacy-test-key")
+    assert llm_interaction.model_client_kwargs()["api_key"] == "generic-test-key"
+
+
+def test_custom_endpoint_never_receives_legacy_key(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(llm_interaction, "LLM_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setattr(llm_interaction, "LLM_MODEL", "custom-model")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "legacy-test-key")
+    with pytest.raises(ValueError, match="Set LLM_API_KEY"):
+        llm_interaction.model_client_kwargs()
+
+
+def test_custom_endpoint_requires_explicit_model(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(llm_interaction, "LLM_MODEL", "")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    with pytest.raises(ValueError, match="Set LLM_MODEL"):
+        llm_interaction.model_client_kwargs()
+
+
+def test_custom_endpoint_has_no_implicit_openrouter_fallbacks(monkeypatch):
+    monkeypatch.setattr(llm_interaction, "LLM_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.delenv("LLM_FALLBACK_MODELS", raising=False)
+    assert llm_interaction._fallbacks_from_env() == []
+    monkeypatch.setenv("LLM_FALLBACK_MODELS", "local-backup, other-backup")
+    assert llm_interaction._fallbacks_from_env() == ["local-backup", "other-backup"]
+
+
+def test_report_and_agent_clients_share_custom_configuration(monkeypatch):
+    monkeypatch.setattr(llm_interaction, "LLM_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setattr(llm_interaction, "LLM_MODEL", "local-model")
+    monkeypatch.setattr(llm_interaction, "_client", None)
+    monkeypatch.setenv("LLM_API_KEY", "local")
+    report_client = llm_interaction._get_client()
+    agent_model = llm_interaction.create_agent_model()
+    assert str(report_client.base_url).rstrip("/") == agent_model.openai_api_base
+    assert report_client.api_key == agent_model.openai_api_key.get_secret_value() == "local"
+    assert agent_model.model_name == "local-model"

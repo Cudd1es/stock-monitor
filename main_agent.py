@@ -12,8 +12,7 @@ from prompt_manager import PromptManager
 from dotenv import load_dotenv
 import os
 import logging
-from langchain_openai import ChatOpenAI
-from llm_interaction import LLM_BASE_URL, LLM_MODEL
+from llm_interaction import create_agent_model
 
 # load llm api key in .env
 load_dotenv()
@@ -127,11 +126,7 @@ def main():
     system_prompt = PromptManager().render_prompt(name="langgraph_agent")["system"]
     logger.info(f"[system_prompt] generated system_prompt: {system_prompt}")
 
-    llm = ChatOpenAI(
-        model=LLM_MODEL,
-        base_url=LLM_BASE_URL,
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-    )
+    llm = create_agent_model()
     agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
     user_content = input("I am stock ticker monitor agent, how can I help you?\n")
