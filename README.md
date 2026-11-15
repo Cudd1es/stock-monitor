@@ -1,202 +1,285 @@
-# Stock Monitor Agent 
+# Stock Monitor Agent
 
-A LangGraph-powered stock monitoring system that trace stock price, 
-collect news and generate reports with workflow mode and agent mode.
+A Python stock-monitoring assistant built with LangGraph, yfinance, and OpenRouter. It tracks price moves, gathers company news and research, and delivers contextual reports to the console or Discord.
 
+Two execution modes share the same data and report-generation functions:
 
+| | Workflow mode | Agent mode |
+| --- | --- | --- |
+| Best for | Recurring monitoring and daily briefs | One-off research requests |
+| Entry point | `main_workflow.py` | `main_agent.py` |
+| Control flow | Explicit LangGraph state and rule-based routing | LLM-selected tool calls through LangChain `create_agent` |
+| Input | `config.yaml` and `watchlist.yaml` | An interactive natural-language prompt |
+| Scheduling and alert deduplication | Built in | Not provided |
 
-### Workflow Mode
-- Watches the tickers in `watchlist.yaml`, each with its own alert threshold and switches for intraday checks and research;
-  edit it in natural language with `python watchlist.py "..."` and the running monitor picks up the change on its next check
-- Runs intraday move checks and an after-close daily brief in the same process
-- Fetches live prices and news via yfinance, keeping only stories actually about each ticker, with article summaries
-- Compares each move with the market (SPY / QQQ) so the brief can tell stock-specific moves from market-wide ones
-- Adds relative volume (today vs the usual volume by this time of day), recent SEC 8-K / 6-K filings with the
-  opening of their EX-99.1 press release, and the next earnings date (facts), plus analyst consensus, price targets,
-  EPS estimates and recent rating changes (opinions); the brief keeps facts and analyst views in separate sections
-- Judges price movement thresholds
-- Summarizes results using LLMs
-- Sends notifications to Discord or console
+## Features
 
-Topology: 
-```mermaid
-flowchart TD
-  %% Topology of the LangGraph workflow
+- **Per-ticker monitoring:** configure price-change thresholds, intraday participation, and research independently.
+- **Daily and intraday reports:** cover the full watchlist in daily briefs; research only newly triggered tickers during intraday checks.
+- **Market context:** compare each move against SPY and QQQ.
+- **Company research:** collect relevance-filtered news, recent SEC 8-K / 6-K filings and available EX-99.1 excerpts, earnings dates, analyst consensus, targets, estimates, and rating changes.
+- **Relative volume:** compare today's volume with the expected volume at the same time of day, using recent trading history.
+- **Grounded report prompts:** separate facts from analyst opinions, request source links, and explicitly acknowledge missing catalysts.
+- **Natural-language watchlist editing:** turn requests into validated add/update/remove operations, preview the diff, and confirm before saving.
+- **Hot reload:** pick up watchlist edits on the next check; retain the last valid watchlist if a later edit is invalid.
 
-  S[supervisor]
-  PR[price]
-  N[news]
-  R[research]
-  J[judge]
-  B[brief]
-  NO[notify]
-  E([END])
+## Quick start
 
-  %% Conditional routing from supervisor based on state.plan
-  S -- route(state) → price --> PR
-  S -- route(state) → news --> N
-  S -- route(state) → research --> R
-  S -- route(state) → judge --> J
-  S -- route(state) → brief --> B
-  S -- route(state) → notify --> NO
-  S -- route(state) → __END__ --> E
-
-  %% All business nodes return to supervisor
-  PR --> S
-  N --> S
-  R --> S
-  J --> S
-  B --> S
-  NO --> S
-```
-
-### Agent Mode
-
-- LLM agent parses user prompt itself
-- LLM agent make use of tools provided to finish works from user requirements
-- LLM agent decides when to end
-
-Topology:
-
-![agent_topology.png](readme_asserts/agent_topology.png "agent topology")
-
-
-## Example
-
-Edit the watchlist in natural language:
-
-```bash
-python watchlist.py "Watch MSFT and META, alert me at 3% for META"
-```
-
-Result:
-![discord.png](readme_asserts/discord.png "discord message")
----
-
-## Setup
+Use **Python 3.10+** and run commands from the repository root so relative configuration and prompt paths resolve correctly.
 
 ### 1. Install dependencies
+
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
 
-### 2. Add your API key
-Create a `.env` file in the project root with your [OpenRouter](https://openrouter.ai) key:
-```
-OPENROUTER_API_KEY=sk-or-your-key-here
-# optional, defaults to nvidia/nemotron-3-ultra-550b-a55b:free
-LLM_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
-# optional, tried in order when the main model is rate-limited, down or retired; empty disables fallbacks
-LLM_FALLBACK_MODELS=google/gemma-4-31b-it:free,openrouter/free
-```
-Rate limits, server errors and dropped connections are retried once on the same model before moving to the next one;
-if every model fails, the brief falls back to the raw data. Free models change often: check
-[OpenRouter's free models](https://openrouter.ai/models?max_price=0) if one starts failing.
+On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.
 
-### 3. Create `config.yaml`
-Copy `config_example.yaml` to `config.yaml` and edit it. It holds the global settings and secrets and is read once at startup:
-- `timezone`: market timezone, default `America/Toronto`
-- `schedule.daily_brief`: `HH:MM` for the after-close brief, or `null` to turn it off (default `"16:10"`)
-- `schedule.intraday_minutes`: check for moves every N minutes during market hours, or `null` to turn it off (default `null`)
-- `notify_method` (`console` | `discord`) and `report_language` (`en` | `zh` | `jp`)
-- `defaults`: per-ticker defaults — `alert_threshold` (percent, default 5.0), `intraday` and `research` (both default `true`)
-- `discord.webhook_url` / `discord.mention_id`: needed for Discord notifications
-- `sec.user_agent`: SEC requires automated clients to identify themselves with a contact (e.g. `"Your Name your-email@example.com"`);
-  without it (or the `SEC_USER_AGENT` environment variable), filings are skipped
+### 2. Configure the model
 
-### 4. Create `watchlist.yaml`
-Describe what to watch; the LLM turns it into add / update / remove operations, which are validated and shown as a diff before writing:
+Create `.env` in the repository root:
+
+```dotenv
+OPENROUTER_API_KEY=your-openrouter-api-key
+
+# Optional: override the defaults in llm_interaction.py
+# LLM_MODEL=your-model-id
+# LLM_FALLBACK_MODELS=first-fallback-id,second-fallback-id
+# LLM_BASE_URL=https://openrouter.ai/api/v1
+```
+
+The implementation defaults to `nvidia/nemotron-3-ultra-550b-a55b:free`, followed by `google/gemma-4-31b-it:free` and `openrouter/free`. These are repository defaults, not a guarantee of provider availability. Choose an available model from [OpenRouter](https://openrouter.ai/models); Agent mode requires tool-calling support. Set `LLM_FALLBACK_MODELS=` to disable the fallback chain.
+
+### 3. Create local configuration
+
 ```bash
-python watchlist.py "Watch MSFT, NVDA and SPY; alert me at 3% for NVDA; no intraday checks or news for SPY"
+cp config_example.yaml config.yaml
+cp watchlist_example.yaml watchlist.yaml
 ```
-The file is plain YAML (see `watchlist_example.yaml`); each ticker can override `alert_threshold`, `intraday` and `research`.
 
----
+**For a first run, change `notify_method` to `console` in `config.yaml`.** The example uses Discord with placeholder credentials. For Discord delivery, set a real `discord.webhook_url`; `discord.mention_id` is optional.
 
-## Usage
+To enable SEC filings, replace the example `sec.user_agent` with your name and contact email, or set `SEC_USER_AGENT` in `.env`. Without either value, filings are skipped.
 
-### Use Workflow Mode
-Start the monitor; it keeps running and runs on the schedule in `config.yaml`. Stop it with Ctrl+C:
+### 4. Generate a report
+
+```bash
+python main_workflow.py --once daily
+```
+
+This runs immediately and exits. On a non-trading day or before today's price bars are available, current prices may be `N/A`.
+
+To keep monitoring on the configured schedule:
+
 ```bash
 python main_workflow.py
 ```
 
-Run a single daily brief, or a single intraday check, right now and exit:
+The process must remain running. Stop it with `Ctrl+C`.
+
+## Configuration
+
+### Global settings: `config.yaml`
+
+The workflow loads its settings once at startup; restart it after changing them. The following defaults are from `settings.py`; the supplied example enables intraday checks and Discord explicitly.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `timezone` | `America/Toronto` | Timezone for market hours and scheduled runs; use an Eastern Time zone |
+| `schedule.daily_brief` | `"16:10"` | Daily report time (`HH:MM`); `null` disables it |
+| `schedule.intraday_minutes` | `null` | Check interval from 1 to 390 minutes; `null` disables it |
+| `notify_method` | `console` | `console` or `discord` |
+| `report_language` | `zh` | `en`, `zh`, or `jp` |
+| `defaults.alert_threshold` | `5.0` | Absolute percentage move versus previous close required for an alert |
+| `defaults.intraday` | `true` | Include a ticker in intraday checks |
+| `defaults.research` | `true` | Fetch news, filings, analyst views, and relative volume |
+| `discord.webhook_url` | Unset | Required when `notify_method` is `discord` |
+| `discord.mention_id` | Unset | Optional Discord user ID to mention |
+| `sec.user_agent` | Unset | SEC client identity; `SEC_USER_AGENT` takes precedence |
+
+At least one schedule must be enabled, including when using `--once`. Quote times in YAML, and use YAML booleans (`true` / `false`) for switches.
+
+### Per-ticker rules: `watchlist.yaml`
+
+```yaml
+tickers:
+  - symbol: MSFT
+  - symbol: NVDA
+    alert_threshold: 3.0
+  - symbol: SPY
+    intraday: false
+    research: false
+```
+
+Omitted fields inherit `defaults` from `config.yaml`. Thresholds are percentages: `3.0` means 3%, not 0.03%. Use Yahoo Finance symbols, such as `BRK-B` for Berkshire Hathaway Class B.
+
+`intraday: false` excludes a ticker from intraday checks but keeps it in daily briefs. `research: false` keeps its price snapshot and skips its news, filings, analyst data, and relative volume.
+
+## Usage
+
+### Workflow commands
+
 ```bash
+# Run on the configured schedule
+python main_workflow.py
+
+# Run immediately, then exit
 python main_workflow.py --once daily
-```
-```bash
 python main_workflow.py --once intraday
+
+# Use alternative configuration and watchlist files
+python main_workflow.py --config my_config.yaml --watchlist my_watchlist.yaml
 ```
 
-`--config` and `--watchlist` point at other files (defaults: `config.yaml`, `watchlist.yaml`).
+`--once` bypasses the trading-day scheduler. Intraday runs still use the same alert rules and persisted deduplication state.
 
-Edit or show the watchlist while the monitor runs; the change applies on its next check, no restart needed:
-```bash
-python watchlist.py "add AMD, alert me at 4%"
-```
+### Edit the watchlist
+
 ```bash
 python watchlist.py list
+python watchlist.py "Add AMD and NVDA; alert me at 3% for NVDA"
+python watchlist.py "把 NVDA 的阈值改成 4%，移除 AMD"
+python watchlist.py "Disable intraday checks and research for SPY"
 ```
-If an edit by hand breaks the file, the monitor keeps using the last valid watchlist and reports the error once.
 
-Scheduling (runs on NYSE trading days only, skipping weekends and NYSE holidays, though early closes such as the day after Thanksgiving are not handled):
-- **daily brief** (`schedule.daily_brief`): once per trading day at that time; covers every ticker and always sends.
-- **intraday checks** (`schedule.intraday_minutes`): every N minutes from 09:30 open, plus once at 16:00 close, for tickers with
-  `intraday: true`. They stay quiet unless a new alert fires, then send one `[INTRADAY ALERT]` message with the alert and a brief
-  covering only the tickers that triggered.
-- Both can be on at once; when they fall at the same time, the intraday check runs first.
-- Tickers with `research: false` get prices only: no news, SEC filings, analyst views or relative volume.
+Each edit is parsed by the LLM, validated against the current watchlist, and displayed as a diff. Newly added tickers must also have price data available through yfinance. Confirm with `y` to write the file, or pass `--yes` to skip confirmation:
 
-Alert dedup: a ticker alerts once per day per direction, and again only when its move crosses the next
-multiple of that ticker's threshold (with 5%: at 5%, then 10%, ...). State lives in `state/alerts.json`, so restarts don't re-alert. An alert is recorded only after it was delivered,
-so a failed Discord send is retried on the next check.
+```bash
+python watchlist.py "Add META" --yes
+```
 
+The CLI also accepts `--config` and `--watchlist`. You can edit the YAML manually; subsequent CLI writes preserve rules but replace comments. Listing or manually editing the watchlist does not require an LLM call.
 
-### Use Agent Mode
+### Interactive Agent
 
-Run the main entry:
 ```bash
 python main_agent.py
 ```
 
-Example prompt (inside `main_agent.py`):
-```python
-init = {
-    "requirement": "分析 MSFT, NVDA 和 META, 并在discord给我发简报"
-}
+Enter a request when prompted, for example:
+
+```text
+分析 MSFT、NVDA 和 META，结合新闻、SEC 公告和分析师观点，用中文输出到 console。
 ```
 
+For Discord delivery, explicitly request it and configure the webhook in `config.yaml`. The Agent processes one request, prints its final response, and exits. It does not start the scheduler or edit the watchlist.
 
----
+## Architecture and AI design
 
-## Project Structure
+### Workflow: deterministic orchestration
+
+`main_workflow.py` builds a `StateGraph(AgentState)`. The supervisor inspects completed state fields and routes to the next unfinished node. **The supervisor does not call an LLM.** Business nodes return to it after each step.
+
+```mermaid
+flowchart TD
+    S[Supervisor] --> P[Price]
+    P --> S
+    S --> J[Judge thresholds and deduplicate]
+    J --> S
+    S --> N[News]
+    N --> S
+    S --> R[Research]
+    R --> S
+    S --> B[Generate brief]
+    B --> S
+    S --> O[Notify]
+    O --> S
+    S --> E[End]
 ```
-main_workflow.py    # LangGraph workflow definition and monitor CLI
-monitor.py          # Scheduling (intraday checks + daily brief) and alert dedup store
-settings.py         # Load and validate config.yaml and watchlist.yaml, hot-reload the watchlist
-watchlist.py        # CLI: show the watchlist or edit it in natural language
-main_agent.py       # LangGraph agent definition
-core.py             # Shared logic for both modes: prices, context, brief, config
-parser.py           # Turn a natural-language request into watchlist edit operations (LLM)
-ticker_checker.py   # Fetch stock prices, compute change and relative volume
-news_collector.py   # Recent, relevance-filtered news with article summaries
-analyst.py          # Analyst consensus, price targets, rating changes, earnings date (yfinance)
-filings.py          # Recent SEC 8-K / 6-K filings and their press releases (EDGAR)
-llm_interaction.py  # Interface with LLMs via OpenRouter (OpenAI-compatible API)
-notifier.py         # Send Discord or console notifications
-tests/              # pytest unit tests
+
+Normal execution order is `price → judge → news → research → brief → notify`. For an intraday check with no new alerts, execution ends after `judge`, avoiding research and report-generation calls.
+
+The graph state carries settings, ticker rules, the run kind, snapshots, news, research, alerts, and the generated brief. Each run uses a new thread ID. `MemorySaver` checkpoints are in memory; persistent alert history is stored separately in `state/alerts.json`.
+
+### Agent: model-directed tool use
+
+`main_agent.py` uses LangChain's `create_agent` and a `ChatOpenAI` client pointed at OpenRouter. The model chooses tool calls and when to finish.
+
+| Tool | Responsibility |
+| --- | --- |
+| `ticker_price` | Fetch a ticker's price snapshot and percentage change |
+| `ticker_news` | Fetch recent company-relevant news |
+| `ticker_research` | Fetch analyst views, SEC filings, and relative volume |
+| `generate_report` | Add market benchmarks and generate a grounded ticker report |
+| `send_notification` | Deliver report text to console or Discord |
+
+The system prompt asks the Agent to gather price, news, and research before generating a report and to send each ticker's report separately. These are model instructions, rather than enforced workflow transitions.
+
+### Shared report generation
+
+Both modes reuse `core.py` to assemble source data into text context, separating **facts** from **analyst opinions**. `prompt_manager.py` renders the YAML prompts in `prompts/`; the report LLM receives that context to explain the observed moves.
+
+There are three distinct LLM responsibilities: parsing watchlist edits, composing reports, and selecting tools in Agent mode. Price calculations, threshold decisions, scheduling, and watchlist validation are ordinary Python logic.
+
+## Scheduling and alert behavior
+
+- Scheduled runs skip weekends and standard full-day NYSE holidays. Intraday checks run every configured interval from 09:30, plus a check at 16:00, in the configured timezone.
+- Daily briefs cover every watchlist ticker, even when none crosses a threshold. If daily thresholds are exceeded, an `[ALERT]` notification is sent separately from the `[DAILY BRIEF]`.
+- Intraday checks send an `[INTRADAY ALERT]` with a brief covering only newly triggered tickers. Quiet checks send nothing.
+- If both run types are due together, intraday runs first. Runs execute sequentially.
+- A threshold is **strictly exceeded**: with a 5% threshold, exactly ±5% does not trigger. Once eligible, moves are grouped by `floor(abs(change_pct) / threshold)`.
+- Intraday deduplication tracks the highest delivered level per ticker, day, and direction. For example, +5.1% alerts once; +7% stays quiet; +10% alerts at the next level. Negative moves have separate levels.
+- Intraday state is saved only after successful alert delivery. A failed send leaves the alert eligible for a later check if it still qualifies. Daily alerts do not use this deduplication store.
+
+## Failure handling and current limits
+
+| Situation | Current behavior |
+| --- | --- |
+| Invalid watchlist at startup | Fail immediately with a configuration error |
+| Invalid watchlist after startup | Keep the last valid rules and report the error; changed errors can be reported again |
+| Report/parser model rate limit, selected server error, or connection failure | Retry once on the same model, then try configured fallback models |
+| Model timeout or other non-retryable error | Move to the next model without the same-model retry |
+| All report models fail or return empty content | Deliver raw context with an “LLM unavailable” note |
+| Watchlist parser cannot produce valid operations | Reject the edit; leave the file unchanged |
+| Scheduled run raises an exception | Log the traceback and continue scheduling future runs |
+| Long Discord message | Split into chunks of at most 2,000 characters |
+
+The fallback chain applies to `llm_interaction.ask_llm`, used by report generation and watchlist parsing. **The Agent's tool-selection model does not use that fallback chain.**
+
+Other implementation boundaries:
+
+- Prices come from Yahoo Finance bars, not a streaming exchange feed. Missing or delayed data can produce `N/A`; generated explanations depend on the sources available.
+- Market hours are fixed at 09:30–16:00. Early closes, exceptional exchange closures, and other markets' calendars are not handled. Changing `timezone` does not convert these fixed hours from Eastern Time.
+- SEC requests read `SEC_USER_AGENT` or the default `config.yaml` directly. A workflow `--config` override does not change the SEC configuration path. Agent notifications also read the default `config.yaml`.
+- Agent mode does not automatically apply workflow watchlist rules, report language, or notification preferences; state your requirements in the prompt.
+- A missed schedule is not replayed as a backlog. After a run completes, the scheduler finds the next future slot.
+- There is no brokerage integration, order execution, portfolio accounting, or backtesting engine.
+
+## Development
+
+Install pytest separately from the runtime dependencies, then run the unit tests:
+
+```bash
+python -m pip install pytest
+python -m pytest -q
 ```
 
----
+Tests cover configuration validation, watchlist edits and reloads, scheduling, alert deduplication, data processing, LLM fallback behavior, notification splitting, and workflow/Agent tools. They use mocks for external services; passing tests does not verify live provider availability.
 
-## Acknowledgements
-- [LangGraph](https://python.langchain.com/docs/langgraph)
-- [yfinance](https://github.com/ranaroussi/yfinance)
-- [OpenRouter](https://openrouter.ai)
+| File | Responsibility |
+| --- | --- |
+| `main_workflow.py` | LangGraph state, nodes, routing, and workflow CLI |
+| `monitor.py` | Trading calendar, scheduling loop, persistent intraday alert state |
+| `main_agent.py` | Interactive tool-calling Agent and tool definitions |
+| `core.py` | Shared snapshots, thresholds, context assembly, report generation |
+| `settings.py` | Configuration validation, ticker rules, atomic writes, hot reload |
+| `watchlist.py` / `parser.py` | Watchlist CLI and LLM-to-operation parsing |
+| `ticker_checker.py` | Price data and relative volume |
+| `news_collector.py` | News retrieval, relevance filtering, article excerpts |
+| `analyst.py` / `filings.py` | Analyst and earnings data; SEC filings and press release excerpts |
+| `llm_interaction.py` | OpenRouter-compatible client, retry and fallback logic |
+| `prompt_manager.py` / `prompts/` | Prompt rendering and report/Agent instructions |
+| `notifier.py` | Console and Discord delivery |
+| `tests/` | pytest suite |
 
----
+Local credentials (`.env`, `config.yaml`), personal watchlists, logs, and runtime state are ignored by Git. Keep real credentials out of the example files.
+
+## Example output
+
+![Example Discord report](readme_asserts/discord.png)
 
 ## License
-Apache 2.0
 
+[Apache License 2.0](LICENSE).
