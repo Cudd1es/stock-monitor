@@ -24,3 +24,7 @@ venv/
 
 # monitor state
 state/
+
+
+docs/superpowers/
+.superpowers
